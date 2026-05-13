@@ -1,5 +1,10 @@
 # IdeaLab
 
+<p align="center">
+  <a href="./README.md"><img alt="English" src="https://img.shields.io/badge/Language-English-2266DD"></a>
+  <a href="./README.zh-CN.md"><img alt="中文" src="https://img.shields.io/badge/语言-中文-00A676"></a>
+</p>
+
 IdeaLab 是一个本地单用户 AI 科研构思系统，核心目标是围绕复杂研究问题进行“问题驱动的想法生成与深层推演”，并输出可追踪的推演图和结构化研究报告。
 
 与主要强调自动实验执行的 AI Scientist 类系统不同，IdeaLab 把重心放在科研流程更早的位置：帮助研究者先判断**什么方向值得做**，再决定是否投入实验资源。

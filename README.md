@@ -1,5 +1,10 @@
 # IdeaLab
 
+<p align="center">
+  <a href="./README.md"><img alt="English" src="https://img.shields.io/badge/Language-English-2266DD"></a>
+  <a href="./README.zh-CN.md"><img alt="中文" src="https://img.shields.io/badge/语言-中文-00A676"></a>
+</p>
+
 IdeaLab is a local, single-user AI research ideation system focused on
 problem-driven idea generation, deep reasoning, evidence tracking, and
 structured research reports.
