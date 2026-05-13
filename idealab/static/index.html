@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>IdeaLab</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <main id="app">
+      <section id="landing" class="landing">
+        <button id="settingsOpen" class="icon-button settings-button" title="设置">⚙</button>
+        <button id="historyOpenLanding" class="history-button" title="历史推演">历史</button>
+        <h1>IdeaLab</h1>
+        <p>问题驱动的 AI 研究想法生成与深层推演系统</p>
+        <div class="composer">
+          <textarea id="ideaInput" placeholder="输入你的研究问题、初始 idea 或背景资料..."></textarea>
+          <div class="composer-footer">
+            <label><input type="radio" name="mode" value="fixed" checked /> 固定流程</label>
+            <label><input type="radio" name="mode" value="free" /> 自由探索</label>
+            <button id="startRun">开始推演</button>
+          </div>
+        </div>
+        <div id="health" class="health"></div>
+      </section>
+
+      <section id="workspace" class="workspace hidden">
+        <header class="topbar">
+          <div>
+            <strong>IdeaLab</strong>
+            <span id="runMeta"></span>
+          </div>
+          <div class="topbar-actions">
+            <button id="newRun">新推演</button>
+            <button id="historyOpen">历史</button>
+            <button id="reportOpen">报告</button>
+            <button id="settingsOpen2">设置</button>
+            <button id="stopRun">停止</button>
+          </div>
+        </header>
+
+        <section class="canvas-shell">
+          <svg id="edgeLayer"></svg>
+          <div id="nodeLayer"></div>
+        </section>
+
+        <footer class="human-input">
+          <input id="humanInput" placeholder="中途插入你的想法：会在当前 loop 后注入下一轮..." />
+          <button id="sendHumanInput">插入</button>
+        </footer>
+      </section>
+
+      <aside id="details" class="details-page hidden">
+        <header class="details-topbar">
+          <div id="detailsBadge" class="details-badge"></div>
+          <div class="details-heading">
+            <h2 id="detailsTitle"></h2>
+            <div id="detailsMeta" class="details-meta"></div>
+          </div>
+          <button id="detailsClose" class="close details-close">关闭</button>
+          <nav id="detailsNodeNav" class="details-node-nav"></nav>
+        </header>
+        <main id="detailsBody" class="details-body"></main>
+      </aside>
+
+      <aside id="settings" class="modal hidden">
+        <div class="modal-panel">
+          <button id="settingsClose" class="close">×</button>
+          <h2>IdeaLab 设置</h2>
+          <p class="muted">API key 保存到本地 <code>idealab_config/.env</code>；已保存的 key 不会回显。</p>
+          <div class="api-key-grid">
+            <label>
+              DeepSeek API Key
+              <input id="deepseekKey" type="password" autocomplete="off" placeholder="留空表示不修改" />
+            </label>
+            <label>
+              Semantic Scholar API Key
+              <input id="s2Key" type="password" autocomplete="off" placeholder="留空表示不修改" />
+            </label>
+          </div>
+          <div id="apiKeyStatus" class="muted"></div>
+          <h3>模型配置</h3>
+          <p class="muted">每个阶段可以使用不同模型；勾选“不限制输出 token”时，请求中不会传 <code>max_tokens</code>。</p>
+          <div id="modelsEditor" class="settings-cards"></div>
+          <h3>Prompt 配置</h3>
+          <div id="promptsEditor" class="settings-cards"></div>
+          <details class="advanced-config">
+            <summary>高级 JSON</summary>
+            <div class="config-grid">
+              <label>
+                模型配置 JSON
+                <textarea id="modelsConfig"></textarea>
+              </label>
+              <label>
+                Prompt 配置 JSON
+                <textarea id="promptsConfig"></textarea>
+              </label>
+            </div>
+          </details>
+          <button id="saveConfig">保存配置</button>
+          <span id="configStatus"></span>
+        </div>
+      </aside>
+
+      <aside id="history" class="modal hidden">
+        <div class="modal-panel history-panel">
+          <button id="historyClose" class="close">×</button>
+          <h2>历史推演</h2>
+          <div id="historyList" class="history-list"></div>
+        </div>
+      </aside>
+
+      <aside id="report" class="modal hidden">
+        <div class="modal-panel report-panel">
+          <button id="reportClose" class="close">×</button>
+          <h2>研究推演报告</h2>
+          <div id="reportBody" class="markdown-body"></div>
+        </div>
+      </aside>
+    </main>
+    <script src="/static/app.js"></script>
+  </body>
+</html>

@@ -1,0 +1,9 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+idealab_config/
+idealab_workspaces/
+.env
+*.log
+node_modules/
