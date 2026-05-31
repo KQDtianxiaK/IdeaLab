@@ -16,7 +16,7 @@ def create_workspace(mode: RunMode, raw_input: str) -> tuple[str, Path, Graph]:
     ensure_dirs()
     run_id = new_id("run")
     workspace = run_dir(run_id)
-    for child in ["evidence", "reports", "configs", "logs"]:
+    for child in ["evidence", "reports", "configs", "logs", "evaluations", "experiments"]:
         (workspace / child).mkdir(parents=True, exist_ok=True)
 
     init = Node(

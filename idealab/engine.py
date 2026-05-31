@@ -7,8 +7,9 @@ from pathlib import Path
 from typing import Any
 
 from .config import get_prompts_config, write_json
+from .evaluation import EvaluationService, append_human_judgment, load_evaluation
 from .llm import LLMClient
-from .models import CreateRunRequest, Graph, HumanInputRequest, Node, new_id
+from .models import CreateRunRequest, Graph, HumanEvaluationJudgmentRequest, HumanInputRequest, Node, new_id
 from .storage import (
     add_edge,
     add_node,
@@ -95,6 +96,25 @@ class IdeaLabEngine:
         )
         add_node(workspace, node)
         return load_graph(workspace)
+
+    def load_evaluation(self, run_id: str) -> dict[str, Any] | None:
+        return load_evaluation(run_dir(run_id))
+
+    def recompute_evaluation(self, run_id: str) -> dict[str, Any]:
+        workspace = run_dir(run_id)
+        graph = load_graph(workspace)
+        by_type = {node.type: node.output for node in graph.nodes if node.output is not None}
+        branches = self._branch_results_from_graph(graph)
+        return EvaluationService().run(
+            workspace=workspace,
+            problem=by_type.get("problem"),
+            ideas=by_type.get("ideation"),
+            branches=branches,
+            evidence=by_type.get("literature"),
+        )
+
+    def add_human_evaluation_judgment(self, run_id: str, request: HumanEvaluationJudgmentRequest) -> dict[str, Any]:
+        return append_human_judgment(run_dir(run_id), request)
 
     def _run_background(self, run_id: str, workspace: Path, raw_input: str, mode: str) -> None:
         try:
@@ -230,9 +250,37 @@ class IdeaLabEngine:
         )
         parent_id = branch_results[0]["leaf_node_id"] if branch_results else ideation_node.id
 
-        compare_node = self._add_running_node(workspace, parent_id, "comparison", "路径比较与排序", {"branches": branch_results}, version)
+        evaluation_node = self._add_running_node(
+            workspace,
+            parent_id,
+            "evaluation",
+            "Idea 多模型成对评估",
+            {"ideas": ideas, "branches": branch_results, "experiment_policy": "plan_only"},
+            version,
+        )
         for branch in branch_results[1:]:
-            add_edge(workspace, branch["leaf_node_id"], compare_node.id)
+            add_edge(workspace, branch["leaf_node_id"], evaluation_node.id)
+        evaluation = EvaluationService().run(
+            workspace=workspace,
+            problem=problem,
+            ideas=ideas,
+            branches=branch_results,
+            evidence=literature,
+        )
+        update_node(
+            workspace,
+            evaluation_node.id,
+            status="completed",
+            summary=self._evaluation_summary(evaluation),
+            output=evaluation,
+            model=", ".join(evaluation.get("spec", {}).get("judge_models", [])),
+            tool_calls=[{"tool": "idealab_evaluation", "policy": "pairwise_btl_elo", "experiment_policy": "plan_only"}],
+            scores=evaluation.get("btl_scores", {}),
+            confidence=0.78,
+        )
+        parent_id = evaluation_node.id
+
+        compare_node = self._add_running_node(workspace, parent_id, "comparison", "路径比较与排序", {"branches": branch_results, "evaluation": evaluation}, version)
         comparison = self._complete_llm_node(
             workspace,
             compare_node,
@@ -241,8 +289,10 @@ class IdeaLabEngine:
             {
                 "ideas": ideas,
                 "branches": branch_results,
+                "evaluation": evaluation,
                 "evidence": literature,
                 "human_inputs": self._human_inputs(workspace),
+                "instruction": "优先消费 evaluation 的 BTL/Elo 排名、维度评分、模型分歧和实验占位信息，再给出研究路线决策。",
             },
             self._fallback_comparison(ideas),
         )
@@ -560,6 +610,8 @@ class IdeaLabEngine:
             "reasoning": by_type_list.get("reasoning", []),
             "critic": by_type_list.get("critic", []),
             "comparison": by_type.get("comparison"),
+            "evaluation": by_type.get("evaluation"),
+            "experiment_plans": (by_type.get("evaluation") or {}).get("experiment_plans", []) if isinstance(by_type.get("evaluation"), dict) else [],
             "cross_review": by_type.get("cross_review"),
             "human_inputs": human_inputs,
             "trace_nodes": nodes,
@@ -594,6 +646,35 @@ class IdeaLabEngine:
         if isinstance(ideas, list):
             return [item for item in ideas if isinstance(item, dict)]
         return []
+
+    def _branch_results_from_graph(self, graph: Graph) -> list[dict[str, Any]]:
+        idea_nodes = [node for node in graph.nodes if node.type == "idea" and isinstance(node.output, dict)]
+        branches = []
+        for idea_node in idea_nodes:
+            reason_node = next((node for node in graph.nodes if node.parent_id == idea_node.id and node.type == "reasoning"), None)
+            critic_node = next((node for node in graph.nodes if reason_node and node.parent_id == reason_node.id and node.type == "critic"), None)
+            branches.append(
+                {
+                    "idea_node_id": idea_node.id,
+                    "reasoning_node_id": reason_node.id if reason_node else None,
+                    "critic_node_id": critic_node.id if critic_node else None,
+                    "leaf_node_id": critic_node.id if critic_node else reason_node.id if reason_node else idea_node.id,
+                    "idea": idea_node.output,
+                    "reasoning": reason_node.output if reason_node else None,
+                    "critic": critic_node.output if critic_node else None,
+                }
+            )
+        return branches
+
+    def _evaluation_summary(self, evaluation: dict[str, Any]) -> str:
+        scores = evaluation.get("btl_scores", {})
+        categories = evaluation.get("pareto_categories", {})
+        if not scores:
+            return "完成 Evaluation：未发现可排序候选 idea。"
+        top_id = max(scores, key=scores.get)
+        category = categories.get(top_id, "未分类")
+        disagreement = evaluation.get("model_disagreement", {}).get("disagreement_rate", 0)
+        return f"完成多模型成对评估：推荐 {top_id}（{category}），模型分歧率 {disagreement}。"
 
     def _query_from(self, raw_input: str, context: Any) -> str:
         candidates: list[str] = [raw_input]
@@ -863,6 +944,7 @@ class IdeaLabEngine:
         literature = by_type.get("literature") if isinstance(by_type.get("literature"), dict) else {}
         ideas = by_type.get("ideation") if isinstance(by_type.get("ideation"), dict) else {}
         comparison = by_type.get("comparison") if isinstance(by_type.get("comparison"), dict) else {}
+        evaluation = by_type.get("evaluation") if isinstance(by_type.get("evaluation"), dict) else {}
         review = by_type.get("cross_review") if isinstance(by_type.get("cross_review"), dict) else {}
         reasoning_list = [item for item in by_type_list.get("reasoning", []) if isinstance(item, dict)]
         critic_list = [item for item in by_type_list.get("critic", []) if isinstance(item, dict)]
@@ -876,6 +958,11 @@ class IdeaLabEngine:
         evidence_items = literature.get("evidence", []) if isinstance(literature.get("evidence"), list) else []
         ranked = comparison.get("ranked_ideas", [])
         recommended = comparison.get("recommended_route") or comparison.get("recommendation") or "需要继续比较候选路线"
+        btl_scores = evaluation.get("btl_scores", {})
+        elo_scores = evaluation.get("elo_scores", {})
+        dimension_aggregates = evaluation.get("dimension_aggregates", {})
+        pareto_categories = evaluation.get("pareto_categories", {})
+        experiment_plans = evaluation.get("experiment_plans", [])
 
         lines = [
             f"# {title}",
@@ -889,13 +976,13 @@ class IdeaLabEngine:
             "5. 关键问题拆解",
             "6. 文献与证据分析",
             "7. 候选想法与分支推演",
-            "8. 路径比较与最终推荐",
-            "9. 实现方案",
-            "10. 验证与实验",
-            "11. 结果分析",
-            "12. 风险、反例与失败模式",
-            "13. 结论",
-            "14. 下一步计划",
+            "8. Evaluation：多模型成对评估与量化排序",
+            "9. 路径比较与最终推荐",
+            "10. 实现方案",
+            "11. 验证与实验",
+            "12. 结果分析",
+            "13. 风险、反例与失败模式",
+            "14. 结论与下一步计划",
             "15. 附录",
             "",
             "## 1. Executive Summary",
@@ -1025,7 +1112,22 @@ class IdeaLabEngine:
         else:
             lines.append("尚未生成候选想法。")
 
-        lines.extend(["## 8. 路径比较与最终推荐", ""])
+        lines.extend(["## 8. Evaluation：多模型成对评估与量化排序", ""])
+        lines.append("当前 Evaluation 基于多模型成对比较、维度评分、BTL 主排序和 Elo 辅助排序。真实实验尚未执行，因此所有实验相关内容均为计划占位。")
+        lines.append("")
+        if btl_scores:
+            lines.append("| Idea | BTL | Elo | Pareto 类别 | 维度评分摘要 |")
+            lines.append("| --- | ---: | ---: | --- | --- |")
+            for idea_id, score in sorted(btl_scores.items(), key=lambda item: item[1], reverse=True):
+                dims = dimension_aggregates.get(idea_id, {})
+                dim_text = ", ".join(f"{key}={value}" for key, value in dims.items())
+                lines.append(f"| {idea_id} | {score} | {elo_scores.get(idea_id, 'N/A')} | {self._format_inline(pareto_categories.get(idea_id, '未分类'))} | {self._format_inline(dim_text)} |")
+            disagreement = evaluation.get("model_disagreement", {}).get("disagreement_rate", 0)
+            lines.extend(["", f"模型分歧率：**{disagreement}**。分歧较高的成对比较需要人工复核或补充证据。", ""])
+        else:
+            lines.extend(["尚未形成 Evaluation 排名；通常需要至少两个候选 idea 才能进行成对比较。", ""])
+
+        lines.extend(["## 9. 路径比较与最终推荐", ""])
         if ranked:
             lines.append("| 排名 | 路线 | 评分/理由 |")
             lines.append("| --- | --- | --- |")
@@ -1039,7 +1141,7 @@ class IdeaLabEngine:
         lines.extend(["", f"最终推荐：**{self._format_inline(recommended)}**。", ""])
 
         lines.extend([
-            "## 9. 实现方案",
+            "## 10. 实现方案",
             "",
             "### 9.1 系统设计与算法流程",
             "",
@@ -1060,19 +1162,29 @@ class IdeaLabEngine:
                     if isinstance(path, dict):
                         lines.append(f"- {self._format_inline(path.get('idea_id') or path.get('idea') or f'推演 {idx}')}：{self._format_inline(path.get('implementation_details') or path.get('chain') or path.get('causal_chain') or 'N/A')}")
 
-        lines.extend(["", "## 10. 验证与实验", "", "### 10.1 已完成验证", "", "尚未进行真实实验验证。", "", "### 10.2 最小验证实验", ""])
-        roadmap = comparison.get("validation_roadmap", [])
-        lines.extend([f"- {self._format_inline(item)}" for item in roadmap] if isinstance(roadmap, list) and roadmap else [
-            "- 定义主指标与失败判据，避免只看正向示例。",
-            "- 构造代表性样例或选取公开基准。",
-            "- 与最直接 baseline 比较，至少做一次 ablation。",
-            "- 把失败样例输入下一轮 IdeaLab，检查假设是否需要修改。",
-        ])
-        lines.extend(["", "### 10.3 对照组、指标与消融", "", "- 对照组：最直接 baseline、已有方法或当前系统默认实现。", "- 主指标：任务成功率、质量指标、成本、延迟或资源占用。", "- 消融：逐一移除关键模块，确认每个模块的独立贡献。", ""])
+        lines.extend(["", "## 11. 验证与实验", "", "### 11.1 已完成验证", "", "尚未进行真实实验验证。Phase 1 只将实验纳入评估闭环，当前不会执行代码、benchmark 或外部实验。", "", "### 11.2 最小验证实验", ""])
+        if experiment_plans:
+            for plan in experiment_plans[:8]:
+                lines.append(f"- **{plan.get('idea_id')}**（{plan.get('status')}）：{self._format_inline(plan.get('minimum_validation'))}")
+        else:
+            roadmap = comparison.get("validation_roadmap", [])
+            lines.extend([f"- {self._format_inline(item)}" for item in roadmap] if isinstance(roadmap, list) and roadmap else [
+                "- 定义主指标与失败判据，避免只看正向示例。",
+                "- 构造代表性样例或选取公开基准。",
+                "- 与最直接 baseline 比较，至少做一次 ablation。",
+                "- 把失败样例输入下一轮 IdeaLab，检查假设是否需要修改。",
+            ])
+        lines.extend(["", "### 11.3 对照组、指标与消融", ""])
+        if experiment_plans:
+            for plan in experiment_plans[:5]:
+                lines.append(f"- **{plan.get('idea_id')}**：指标 {self._format_inline(plan.get('metrics'))}；对照 {self._format_inline(plan.get('controls'))}；消融 {self._format_inline(plan.get('ablation_plan'))}。")
+        else:
+            lines.extend(["- 对照组：最直接 baseline、已有方法或当前系统默认实现。", "- 主指标：任务成功率、质量指标、成本、延迟或资源占用。", "- 消融：逐一移除关键模块，确认每个模块的独立贡献。"])
+        lines.append("")
 
-        lines.extend(["## 11. 结果分析", "", "当前没有真实实验结果，因此本节只分析预期结果和证据强度。所有正向结论都必须在实验后重新校准。若后续实验失败，应将失败样例写回下一轮 IdeaLab，并重新执行反方批判与路径比较。", ""])
+        lines.extend(["## 12. 结果分析", "", "当前没有真实实验结果，因此本节只分析预期结果和证据强度。所有正向结论都必须在实验后重新校准。若后续实验失败，应将失败样例写回下一轮 IdeaLab，并重新执行反方批判、Evaluation 与路径比较。", ""])
 
-        lines.extend(["## 12. 风险、反例与失败模式", ""])
+        lines.extend(["## 13. 风险、反例与失败模式", ""])
         risks: list[Any] = []
         for critic in critic_list:
             value = critic.get("critical_risks") or critic.get("risks") or []
@@ -1088,11 +1200,9 @@ class IdeaLabEngine:
 
         lines.extend([
             "",
-            "## 13. 结论",
+            "## 14. 结论与下一步计划",
             "",
             f"当前结论是：{self._format_inline(recommended)}。这个结论来自 IdeaLab 的文献检索、分支推演、批判审查与路径比较，但尚未经过真实实验验证。",
-            "",
-            "## 14. 下一步计划",
             "",
             "### 14.1 立即执行",
             "",
@@ -1121,7 +1231,7 @@ class IdeaLabEngine:
             lines.extend([f"- {item.get('title', 'Untitled')} ({item.get('year', 'n.d.')}) {item.get('url', '')}" for item in evidence_items[:20]])
         else:
             lines.append("- 暂无可用文献列表。")
-        lines.extend(["", "### 15.3 配置与模型", "", "模型、prompt 版本和工具调用信息可在对应节点详情中查看。", "", "### 15.4 原始结构化数据", "", "完整结构化数据保存在本次 workspace 的 `graph.json`、`problem.json`、`ideas.json`、`evidence/` 与 `reports/` 下。"])
+        lines.extend(["", "### 15.3 配置与模型", "", "模型、prompt 版本和工具调用信息可在对应节点详情中查看。", "", "### 15.4 Evaluation 原始数据", "", "Evaluation 数据保存在 `evaluations/evaluation_run.json`、`evaluations/pairwise_judgments.jsonl`、`evaluations/rankings.json`；实验计划占位保存在 `experiments/plan_stubs.json`。", "", "### 15.5 原始结构化数据", "", "完整结构化数据保存在本次 workspace 的 `graph.json`、`problem.json`、`ideas.json`、`evidence/` 与 `reports/` 下。"])
         return "\n".join(lines)
 
     def _format_inline(self, value: Any) -> str:

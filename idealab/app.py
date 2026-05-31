@@ -10,14 +10,16 @@ from .config import (
     STATIC_DIR,
     env_is_set,
     get_api_key_status,
+    get_evaluation_config,
     get_models_config,
     get_prompts_config,
     save_local_env,
+    save_evaluation_config,
     save_models_config,
     save_prompts_config,
 )
 from .engine import engine
-from .models import CreateRunRequest, HumanInputRequest, RunSummary
+from .models import CreateRunRequest, HumanEvaluationJudgmentRequest, HumanInputRequest, RunSummary
 from .storage import list_workspaces, load_graph, run_dir
 
 
@@ -100,6 +102,34 @@ async def get_report(run_id: str) -> PlainTextResponse:
     return PlainTextResponse(path.read_text(encoding="utf-8"))
 
 
+@app.get("/api/runs/{run_id}/evaluation")
+async def get_evaluation(run_id: str) -> dict:
+    workspace = run_dir(run_id)
+    if not (workspace / "graph.json").exists():
+        raise HTTPException(status_code=404, detail="Run not found")
+    evaluation = engine.load_evaluation(run_id)
+    return evaluation or {}
+
+
+@app.post("/api/runs/{run_id}/evaluation/recompute")
+async def recompute_evaluation(run_id: str) -> dict:
+    workspace = run_dir(run_id)
+    if not (workspace / "graph.json").exists():
+        raise HTTPException(status_code=404, detail="Run not found")
+    return engine.recompute_evaluation(run_id)
+
+
+@app.post("/api/runs/{run_id}/evaluation/human-judgment")
+async def add_human_evaluation_judgment(run_id: str, request: HumanEvaluationJudgmentRequest) -> dict:
+    workspace = run_dir(run_id)
+    if not (workspace / "graph.json").exists():
+        raise HTTPException(status_code=404, detail="Run not found")
+    try:
+        return engine.add_human_evaluation_judgment(run_id, request)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
 @app.get("/api/config/models")
 async def get_models() -> dict:
     data = get_models_config()
@@ -120,6 +150,16 @@ async def get_prompts() -> dict:
 @app.put("/api/config/prompts")
 async def put_prompts(data: dict) -> dict:
     return save_prompts_config(data)
+
+
+@app.get("/api/config/evaluation")
+async def get_evaluation_settings() -> dict:
+    return get_evaluation_config()
+
+
+@app.put("/api/config/evaluation")
+async def put_evaluation_settings(data: dict) -> dict:
+    return save_evaluation_config(data)
 
 
 @app.get("/api/config/api-keys")

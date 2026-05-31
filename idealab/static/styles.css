@@ -412,6 +412,129 @@ pre {
   margin-top: 12px;
 }
 
+.eval-summary {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.eval-summary div {
+  border: 1px solid #edf1f7;
+  border-radius: 8px;
+  padding: 10px;
+  background: #f9fbff;
+}
+
+.eval-summary span {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  margin-bottom: 6px;
+}
+
+.eval-summary strong {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.table-scroll {
+  overflow-x: auto;
+}
+
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.data-table th,
+.data-table td {
+  border-bottom: 1px solid #edf1f7;
+  padding: 9px 10px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.data-table th {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.score-chip {
+  display: inline-block;
+  min-width: 44px;
+  text-align: center;
+  border-radius: 8px;
+  padding: 3px 7px;
+  font-weight: 800;
+}
+
+.score-chip.high {
+  background: #e8f7f1;
+  color: #08704f;
+}
+
+.score-chip.mid {
+  background: #fff7e6;
+  color: #8a5a00;
+}
+
+.score-chip.low {
+  background: #fdecec;
+  color: #a32b2b;
+}
+
+.judgment-list,
+.plan-list {
+  display: grid;
+  gap: 10px;
+}
+
+.judgment-item,
+.plan-item {
+  border: 1px solid #edf1f7;
+  border-radius: 8px;
+  padding: 12px;
+  background: #fbfcff;
+}
+
+.judgment-item header,
+.plan-item header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.judgment-item p,
+.plan-item p {
+  margin: 0 0 8px;
+  line-height: 1.55;
+}
+
+.judgment-item small,
+.plan-item small {
+  color: var(--muted);
+}
+
+.plan-item dl {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  gap: 6px 10px;
+  margin: 8px 0;
+}
+
+.plan-item dt {
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.plan-item dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
 .info-card h3,
 .settings-card h4 {
   margin: 0 0 10px;
@@ -709,7 +832,8 @@ code {
   .details-body,
   .history-item,
   .api-key-grid,
-  .config-grid {
+  .config-grid,
+  .eval-summary {
     grid-template-columns: 1fr;
     display: grid;
   }

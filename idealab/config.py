@@ -12,6 +12,7 @@ WORKSPACES_DIR = PROJECT_ROOT / "idealab_workspaces"
 CONFIG_DIR = PROJECT_ROOT / "idealab_config"
 STATIC_DIR = APP_DIR / "static"
 LOCAL_ENV_FILE = CONFIG_DIR / ".env"
+EVALUATION_CONFIG_FILE = CONFIG_DIR / "evaluation.json"
 
 
 DEFAULT_MODELS = {
@@ -42,6 +43,24 @@ DEFAULT_MODELS = {
             "model": "deepseek-v4-pro",
             "temperature": 0.25,
             "max_tokens": 10000,
+        },
+        "judge_primary": {
+            "provider": "deepseek",
+            "model": "deepseek-v4-pro",
+            "temperature": 0.2,
+            "max_tokens": 8000,
+        },
+        "judge_secondary": {
+            "provider": "deepseek",
+            "model": "deepseek-v4-pro",
+            "temperature": 0.35,
+            "max_tokens": 8000,
+        },
+        "evaluation_meta": {
+            "provider": "deepseek",
+            "model": "deepseek-v4-pro",
+            "temperature": 0.25,
+            "max_tokens": 8000,
         },
         "report": {
             "provider": "deepseek",
@@ -126,6 +145,32 @@ rank, idea_id, title, scores(novelty, feasibility, necessity, impact, testabilit
 - 标记报告中必须保留的不确定性。
 - 标记最需要用户或实验确认的地方。
 - 如果用户输入是 method_idea，指出还没有得到用户确认的假设。""",
+        "pairwise_judge": """你是 IdeaLab 的证据约束型科研想法评估裁判。你要比较两个候选 idea，而不是分别给好听的评价。
+
+必须严格基于：
+1. 问题目标与成功标准；
+2. 当前文献和证据；
+3. 机制清晰度、创新性、必要性、可行性、影响力、可验证性、风险、证据强度、信息增益；
+4. 真实实验尚未执行这一事实。
+
+输出 JSON，字段包括：
+winner(A/B/tie), confidence(0-1), dimension_scores, reasoning, evidence_refs, critical_uncertainties, experiment_needed。
+
+dimension_scores 必须以维度 id 为 key，每个维度包含 A, B, rationale。A/B 分数为 0-10，Risk 维度分数越高表示风险越低。
+reasoning 必须说明胜者为什么在当前证据下更值得推进。如果无法判断，winner 输出 tie。
+不要根据文字流畅度、篇幅或表述自信程度选择胜者。""",
+        "evaluation_meta": """你是 IdeaLab 的评估汇总专家。基于多个模型的成对比较、维度分和证据，生成系统级评估摘要。
+
+输出 JSON，字段包括：
+summary, stable_recommendations, model_disagreements, evidence_gaps, human_review_needed, next_evaluation_actions。
+
+必须明确区分文献证据、模型推理、人工输入和未执行实验。""",
+        "experiment_planning_stub": """你是 IdeaLab 的验证规划专家。你只规划最小验证实验，不执行实验、不声称已有真实实验结果。
+
+输出 JSON，字段包括：
+idea_id, status, reason_not_executed, minimum_validation, metrics, controls, ablation_plan, expected_result, failure_signal。
+
+status 只能是 planned 或 skipped。reason_not_executed 必须说明当前 Phase 1 尚未实现实验执行。""",
         "report": """你是 IdeaLab 的最终研究报告作者。你要生成的是面向研究者的完整研究推演报告，而不是摘要、流程日志或节点完成情况列表。
 
 输出 JSON：{"report_markdown": "..."}。
@@ -189,6 +234,88 @@ rank, idea_id, title, scores(novelty, feasibility, necessity, impact, testabilit
 输出 JSON，字段包括 summary, findings, evidence_or_reasoning, implications, next_step。
 内容必须面向最终研究判断推进，不能只描述“我完成了某一步”。""",
     },
+}
+
+
+DEFAULT_EVALUATION = {
+    "pairing_strategy": "full_matrix_until_5_then_sample",
+    "max_ideas": 5,
+    "judge_stages": ["judge_primary", "judge_secondary"],
+    "experiment_policy": "plan_only",
+    "dimensions": [
+        {
+            "id": "novelty",
+            "label": "Novelty",
+            "description": "是否区别于已有工作。",
+            "scale": "0-10",
+            "higher_is_better": True,
+            "weight": 1.0,
+            "enabled": True,
+        },
+        {
+            "id": "necessity",
+            "label": "Necessity",
+            "description": "是否解决真实且重要的问题。",
+            "scale": "0-10",
+            "higher_is_better": True,
+            "weight": 1.0,
+            "enabled": True,
+        },
+        {
+            "id": "feasibility",
+            "label": "Feasibility",
+            "description": "当前资源和技术条件下是否可推进。",
+            "scale": "0-10",
+            "higher_is_better": True,
+            "weight": 1.0,
+            "enabled": True,
+        },
+        {
+            "id": "impact",
+            "label": "Impact",
+            "description": "成功后理论、方法或应用贡献。",
+            "scale": "0-10",
+            "higher_is_better": True,
+            "weight": 1.0,
+            "enabled": True,
+        },
+        {
+            "id": "testability",
+            "label": "Testability",
+            "description": "是否存在低成本验证路径。",
+            "scale": "0-10",
+            "higher_is_better": True,
+            "weight": 1.0,
+            "enabled": True,
+        },
+        {
+            "id": "risk",
+            "label": "Risk",
+            "description": "失败概率、失败代价和关键 blocker；分数越高表示风险越低。",
+            "scale": "0-10",
+            "higher_is_better": True,
+            "weight": 1.0,
+            "enabled": True,
+        },
+        {
+            "id": "evidence_strength",
+            "label": "Evidence Strength",
+            "description": "当前文献、逻辑和已有结果支持强度。",
+            "scale": "0-10",
+            "higher_is_better": True,
+            "weight": 1.0,
+            "enabled": True,
+        },
+        {
+            "id": "information_gain",
+            "label": "Information Gain",
+            "description": "验证后能学到多少，是否值得试。",
+            "scale": "0-10",
+            "higher_is_better": True,
+            "weight": 1.0,
+            "enabled": True,
+        },
+    ],
 }
 
 
@@ -292,14 +419,31 @@ def write_json(path: Path, data: Any) -> None:
     tmp.replace(path)
 
 
+def _merge_missing(default: Any, data: Any) -> tuple[Any, bool]:
+    if isinstance(default, dict) and isinstance(data, dict):
+        changed = False
+        merged = dict(data)
+        for key, value in default.items():
+            if key not in merged:
+                merged[key] = value
+                changed = True
+                continue
+            merged_value, child_changed = _merge_missing(value, merged[key])
+            merged[key] = merged_value
+            changed = changed or child_changed
+        return merged, changed
+    return data, False
+
+
 def get_models_config() -> dict[str, Any]:
     ensure_dirs()
     path = CONFIG_DIR / "models.json"
     if not path.exists():
         write_json(path, DEFAULT_MODELS)
     data = read_json(path, DEFAULT_MODELS)
+    data, merged = _merge_missing(DEFAULT_MODELS, data)
     data, changed = _sanitize_models_config(data)
-    changed = _upgrade_legacy_model_limits(data) or changed
+    changed = _upgrade_legacy_model_limits(data) or changed or merged
     if changed:
         write_json(path, data)
     return data
@@ -320,8 +464,27 @@ def get_prompts_config() -> dict[str, Any]:
     if _is_legacy_prompts(data):
         data = DEFAULT_PROMPTS
         write_json(path, data)
-    elif _upgrade_old_report_prompt(data):
-        write_json(path, data)
+    else:
+        data, merged = _merge_missing(DEFAULT_PROMPTS, data)
+        if _upgrade_old_report_prompt(data) or merged:
+            write_json(path, data)
+    return data
+
+
+def get_evaluation_config() -> dict[str, Any]:
+    ensure_dirs()
+    if not EVALUATION_CONFIG_FILE.exists():
+        write_json(EVALUATION_CONFIG_FILE, DEFAULT_EVALUATION)
+    data = read_json(EVALUATION_CONFIG_FILE, DEFAULT_EVALUATION)
+    data, changed = _merge_missing(DEFAULT_EVALUATION, data)
+    if changed:
+        write_json(EVALUATION_CONFIG_FILE, data)
+    return data
+
+
+def save_evaluation_config(data: dict[str, Any]) -> dict[str, Any]:
+    data, _ = _merge_missing(DEFAULT_EVALUATION, data)
+    write_json(EVALUATION_CONFIG_FILE, data)
     return data
 
 

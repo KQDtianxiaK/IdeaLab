@@ -96,6 +96,13 @@ const FIELD_LABELS = {
   recommended_route: "推荐路线 / recommended_route",
   scores: "评分 / scores",
   rationale: "理由 / rationale",
+  btl_scores: "BTL 分数 / btl_scores",
+  elo_scores: "Elo 分数 / elo_scores",
+  dimension_aggregates: "维度聚合 / dimension_aggregates",
+  model_disagreement: "模型分歧 / model_disagreement",
+  pareto_categories: "Pareto 分类 / pareto_categories",
+  experiment_plans: "实验计划占位 / experiment_plans",
+  judgments: "成对比较 / judgments",
 };
 
 const TOKEN_LABELS = {
@@ -402,6 +409,9 @@ function openDetails(node) {
 }
 
 function renderNodeDetails(node) {
+  if (node.type === "evaluation" && node.output) {
+    return renderEvaluationNodeDetails(node);
+  }
   const sections = [
     { id: "summary", title: "节点摘要", value: { summary: node.summary || "暂无摘要" }, open: true },
     {
@@ -434,6 +444,27 @@ function renderNodeDetails(node) {
   `;
 }
 
+function renderEvaluationNodeDetails(node) {
+  const output = node.output || {};
+  const sections = [
+    { id: "summary", title: "评估摘要", value: { summary: node.summary || "暂无摘要" }, open: true, custom: renderEvaluationSummary(output) },
+    { id: "ranking", title: "BTL / Elo 排名", value: output, open: true, custom: renderEvaluationRanking(output) },
+    { id: "dimensions", title: "多维评分", value: output.dimension_aggregates || {}, open: true, custom: renderDimensionTable(output.dimension_aggregates || {}) },
+    { id: "judgments", title: "成对比较日志", value: output.judgments || [], open: true, custom: renderPairwiseJudgments(output.judgments || []) },
+    { id: "experiments", title: "实验计划占位", value: output.experiment_plans || [], open: true, custom: renderExperimentPlans(output.experiment_plans || []) },
+    { id: "raw", title: "原始 JSON", value: node, open: false, raw: true },
+  ];
+  const toc = sections.map((section) => `<a href="#detail-${section.id}">${escapeHtml(section.title)}</a>`).join("");
+  const cards = sections.map((section) => renderValueCard(section.title, section.value, section)).join("");
+  return `
+    <aside class="detail-toc">
+      <strong>目录</strong>
+      ${toc}
+    </aside>
+    <section class="details-content">${cards}</section>
+  `;
+}
+
 function renderDetailsNodeNav(activeId) {
   if (!currentGraph) return;
   const nodes = currentGraph.nodes || [];
@@ -455,7 +486,7 @@ function renderValueCard(title, value, options = {}) {
   const open = options.open ? "open" : "";
   const body = options.raw
     ? `<pre>${escapeHtml(JSON.stringify(value, null, 2))}</pre>`
-    : renderValue(value);
+    : options.custom || renderValue(value);
   return `
     <details id="detail-${escapeHtml(options.id || title)}" class="info-card" ${open}>
       <summary>
@@ -465,6 +496,106 @@ function renderValueCard(title, value, options = {}) {
       <div class="card-body">${body}</div>
     </details>
   `;
+}
+
+function renderEvaluationSummary(output) {
+  const spec = output.spec || {};
+  const disagreement = output.model_disagreement || {};
+  const models = spec.judge_models || [];
+  return `
+    <div class="eval-summary">
+      <div><span>评估对象</span><strong>${escapeHtml(spec.target_type || "idea")}</strong></div>
+      <div><span>Idea 类型</span><strong>${escapeHtml(spec.idea_type || "unknown")}</strong></div>
+      <div><span>Judge 数量</span><strong>${escapeHtml(String(models.length))}</strong></div>
+      <div><span>模型分歧率</span><strong>${escapeHtml(String(disagreement.disagreement_rate ?? 0))}</strong></div>
+      <div><span>实验策略</span><strong>${escapeHtml(spec.experiment_policy || "plan_only")}</strong></div>
+    </div>
+    <p class="muted">当前阶段只规划实验，不执行真实代码、benchmark 或外部实验。</p>
+  `;
+}
+
+function renderEvaluationRanking(output) {
+  const btl = output.btl_scores || {};
+  const elo = output.elo_scores || {};
+  const categories = output.pareto_categories || {};
+  const ids = Object.keys(btl).sort((a, b) => (btl[b] || 0) - (btl[a] || 0));
+  if (!ids.length) return `<p class="muted">暂无可用排名。</p>`;
+  return `
+    <div class="table-scroll">
+      <table class="data-table">
+        <thead><tr><th>Rank</th><th>Idea</th><th>BTL</th><th>Elo</th><th>Pareto 分类</th></tr></thead>
+        <tbody>
+          ${ids.map((id, index) => `
+            <tr>
+              <td>${index + 1}</td>
+              <td><code>${escapeHtml(id)}</code></td>
+              <td>${escapeHtml(String(btl[id]))}</td>
+              <td>${escapeHtml(String(elo[id] ?? "N/A"))}</td>
+              <td>${escapeHtml(categories[id] || "未分类")}</td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function renderDimensionTable(aggregates) {
+  const ids = Object.keys(aggregates || {});
+  const dimensions = [...new Set(ids.flatMap((id) => Object.keys(aggregates[id] || {})))];
+  if (!ids.length || !dimensions.length) return `<p class="muted">暂无多维评分。</p>`;
+  return `
+    <div class="table-scroll">
+      <table class="data-table score-table">
+        <thead><tr><th>Idea</th>${dimensions.map((dimension) => `<th>${escapeHtml(humanizeKey(dimension))}</th>`).join("")}</tr></thead>
+        <tbody>
+          ${ids.map((id) => `
+            <tr>
+              <td><code>${escapeHtml(id)}</code></td>
+              ${dimensions.map((dimension) => {
+                const value = Number(aggregates[id]?.[dimension] || 0);
+                const tone = value >= 7 ? "high" : value >= 5 ? "mid" : "low";
+                return `<td><span class="score-chip ${tone}">${escapeHtml(value.toFixed(2))}</span></td>`;
+              }).join("")}
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function renderPairwiseJudgments(judgments) {
+  if (!judgments.length) return `<p class="muted">暂无成对比较记录。</p>`;
+  return `<div class="judgment-list">${judgments.slice(0, 24).map((judgment) => `
+    <article class="judgment-item">
+      <header>
+        <strong>${escapeHtml(judgment.idea_a_id)} vs ${escapeHtml(judgment.idea_b_id)}</strong>
+        <span>Winner: ${escapeHtml(judgment.winner)}</span>
+      </header>
+      <p>${escapeHtml(judgment.reasoning || "暂无理由。")}</p>
+      <small>${escapeHtml(judgment.judge_model || "unknown judge")} · confidence ${escapeHtml(String(judgment.confidence ?? "N/A"))}</small>
+    </article>
+  `).join("")}</div>`;
+}
+
+function renderExperimentPlans(plans) {
+  if (!plans.length) return `<p class="muted">暂无实验计划占位。</p>`;
+  return `<div class="plan-list">${plans.map((plan) => `
+    <article class="plan-item">
+      <header>
+        <strong>${escapeHtml(plan.idea_id || "unknown")}</strong>
+        <span>${escapeHtml(plan.status || "planned")}</span>
+      </header>
+      <p>${escapeHtml(plan.minimum_validation || "未定义最小验证。")}</p>
+      <dl>
+        <dt>指标</dt><dd>${escapeHtml((plan.metrics || []).join("、") || "待定义")}</dd>
+        <dt>对照</dt><dd>${escapeHtml((plan.controls || []).join("、") || "待定义")}</dd>
+        <dt>失败信号</dt><dd>${escapeHtml(plan.failure_signal || "待定义")}</dd>
+      </dl>
+      <small>${escapeHtml(plan.reason_not_executed || "Phase 1 不执行实验。")}</small>
+    </article>
+  `).join("")}</div>`;
 }
 
 function renderValue(value, depth = 0, keyName = "") {
