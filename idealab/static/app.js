@@ -100,6 +100,7 @@ const FIELD_LABELS = {
   elo_scores: "Elo 分数 / elo_scores",
   dimension_aggregates: "维度聚合 / dimension_aggregates",
   model_disagreement: "模型分歧 / model_disagreement",
+  meta_review: "元评审 / meta_review",
   pareto_categories: "Pareto 分类 / pareto_categories",
   experiment_plans: "实验计划占位 / experiment_plans",
   judgments: "成对比较 / judgments",
@@ -450,6 +451,7 @@ function renderEvaluationNodeDetails(node) {
     { id: "summary", title: "评估摘要", value: { summary: node.summary || "暂无摘要" }, open: true, custom: renderEvaluationSummary(output) },
     { id: "ranking", title: "BTL / Elo 排名", value: output, open: true, custom: renderEvaluationRanking(output) },
     { id: "dimensions", title: "多维评分", value: output.dimension_aggregates || {}, open: true, custom: renderDimensionTable(output.dimension_aggregates || {}) },
+    { id: "meta", title: "Meta-review", value: output.meta_review || {}, open: true, custom: renderMetaReview(output.meta_review || {}) },
     { id: "judgments", title: "成对比较日志", value: output.judgments || [], open: true, custom: renderPairwiseJudgments(output.judgments || []) },
     { id: "experiments", title: "实验计划占位", value: output.experiment_plans || [], open: true, custom: renderExperimentPlans(output.experiment_plans || []) },
     { id: "raw", title: "原始 JSON", value: node, open: false, raw: true },
@@ -577,6 +579,29 @@ function renderPairwiseJudgments(judgments) {
       <small>${escapeHtml(judgment.judge_model || "unknown judge")} · confidence ${escapeHtml(String(judgment.confidence ?? "N/A"))}</small>
     </article>
   `).join("")}</div>`;
+}
+
+function renderMetaReview(meta) {
+  if (!meta || !Object.keys(meta).length) return `<p class="muted">暂无 meta-review。</p>`;
+  const blocks = [
+    ["稳定推荐", meta.stable_recommendations],
+    ["模型分歧", meta.model_disagreements],
+    ["证据缺口", meta.evidence_gaps],
+    ["需要人工复核", meta.human_review_needed],
+    ["Prompt 反馈", meta.prompt_feedback],
+    ["下一步评估动作", meta.next_evaluation_actions],
+  ];
+  return `
+    <div class="meta-review">
+      <p>${escapeHtml(meta.summary || "暂无摘要。")}</p>
+      ${blocks.map(([title, value]) => `
+        <section>
+          <h4>${escapeHtml(title)}</h4>
+          ${renderValue(value || [])}
+        </section>
+      `).join("")}
+    </div>
+  `;
 }
 
 function renderExperimentPlans(plans) {
@@ -783,11 +808,44 @@ async function openSettings() {
   currentPromptsConfig = prompts;
   $("modelsConfig").value = JSON.stringify(models, null, 2);
   $("promptsConfig").value = JSON.stringify(prompts, null, 2);
-  $("deepseekKey").value = "";
   $("s2Key").value = "";
+  renderProvidersEditor(models);
+  renderProviderKeyInputs(models, apiKeys);
   renderModelsEditor(models);
   renderPromptsEditor(prompts);
   renderApiKeyStatus(apiKeys);
+}
+
+function renderProvidersEditor(models) {
+  const providers = models.providers || {};
+  $("providersEditor").innerHTML = Object.entries(providers).map(([name, cfg]) => `
+    <section class="settings-card provider-card" data-provider="${escapeHtml(name)}">
+      <h4>${escapeHtml(cfg.label || name)}</h4>
+      <label>Provider ID <input data-provider-field="id" value="${escapeHtml(name)}" disabled /></label>
+      <label>Label <input data-provider-field="label" value="${escapeHtml(cfg.label || "")}" /></label>
+      <label>Base URL <input data-provider-field="base_url" value="${escapeHtml(cfg.base_url || "")}" placeholder="https://api.example.com" /></label>
+      <label>API key env <input data-provider-field="api_key_env" value="${escapeHtml(cfg.api_key_env || "")}" placeholder="CUSTOM_API_KEY" /></label>
+      <label>Default model <input data-provider-field="default_model" value="${escapeHtml(cfg.default_model || "")}" /></label>
+      <label>Timeout seconds <input data-provider-field="timeout_seconds" type="number" min="1" value="${escapeHtml(cfg.timeout_seconds ?? 60)}" /></label>
+    </section>
+  `).join("");
+}
+
+function renderProviderKeyInputs(models, apiKeys) {
+  const providers = models.providers || {};
+  const statuses = apiKeys.providers || {};
+  $("providerKeyInputs").innerHTML = Object.entries(providers).map(([name, cfg]) => {
+    const envName = cfg.api_key_env || `${name.toUpperCase()}_API_KEY`;
+    const status = statuses[name] || {};
+    const configured = status.configured ? "已配置" : "未配置";
+    const required = status.required ? " · 当前使用" : "";
+    return `
+      <label>
+        ${escapeHtml(cfg.label || name)} API Key <small>${escapeHtml(envName)} · ${configured}${required}</small>
+        <input data-provider-key="${escapeHtml(name)}" type="password" autocomplete="off" placeholder="留空表示不修改" />
+      </label>
+    `;
+  }).join("");
 }
 
 function renderModelsEditor(models) {
@@ -836,6 +894,17 @@ function renderPromptsEditor(prompts) {
 function syncConfigFromEditors() {
   const models = JSON.parse($("modelsConfig").value);
   const prompts = JSON.parse($("promptsConfig").value);
+  models.providers = models.providers || {};
+  $("providersEditor").querySelectorAll("[data-provider]").forEach((card) => {
+    const provider = card.dataset.provider;
+    const cfg = { ...(models.providers[provider] || {}) };
+    cfg.label = card.querySelector("[data-provider-field='label']").value.trim();
+    cfg.base_url = card.querySelector("[data-provider-field='base_url']").value.trim();
+    cfg.api_key_env = card.querySelector("[data-provider-field='api_key_env']").value.trim();
+    cfg.default_model = card.querySelector("[data-provider-field='default_model']").value.trim();
+    cfg.timeout_seconds = Number(card.querySelector("[data-provider-field='timeout_seconds']").value || 60);
+    models.providers[provider] = cfg;
+  });
   models.stage_models = models.stage_models || {};
   $("modelsEditor").querySelectorAll("[data-model-stage]").forEach((card) => {
     const stage = card.dataset.modelStage;
@@ -861,19 +930,24 @@ function syncConfigFromEditors() {
 async function saveConfig() {
   try {
     const { models, prompts } = syncConfigFromEditors();
+    const providerApiKeys = {};
+    $("providerKeyInputs").querySelectorAll("[data-provider-key]").forEach((input) => {
+      const value = input.value.trim();
+      if (value) providerApiKeys[input.dataset.providerKey] = value;
+    });
     const keyPayload = {
-      deepseek_api_key: $("deepseekKey").value.trim(),
+      provider_api_keys: providerApiKeys,
       semantic_scholar_api_key: $("s2Key").value.trim(),
     };
-    const apiKeys = await api("/api/config/api-keys", { method: "PUT", body: JSON.stringify(keyPayload) });
     await api("/api/config/models", { method: "PUT", body: JSON.stringify(models) });
+    const apiKeys = await api("/api/config/api-keys", { method: "PUT", body: JSON.stringify(keyPayload) });
     const savedPrompts = await api("/api/config/prompts", { method: "PUT", body: JSON.stringify(prompts) });
     currentModelsConfig = models;
     currentPromptsConfig = savedPrompts;
     $("promptsConfig").value = JSON.stringify(savedPrompts, null, 2);
     $("configStatus").textContent = "已保存";
-    $("deepseekKey").value = "";
     $("s2Key").value = "";
+    renderProviderKeyInputs(models, apiKeys);
     renderApiKeyStatus(apiKeys);
     await loadHealth();
   } catch (err) {
@@ -882,9 +956,14 @@ async function saveConfig() {
 }
 
 function renderApiKeyStatus(keys) {
-  const deepseek = keys.deepseek ? "DeepSeek 正常" : "DeepSeek 未配置";
+  const providers = keys.providers || {};
+  const providerText = Object.entries(providers).map(([name, status]) => {
+    const marker = status.configured ? "正常" : "未配置";
+    const required = status.required ? "使用中" : "未使用";
+    return `${status.label || name} ${marker}(${required})`;
+  }).join(" · ");
   const s2 = keys.semantic_scholar ? "Semantic Scholar 正常" : "Semantic Scholar 未配置";
-  $("apiKeyStatus").textContent = `${deepseek} · ${s2}`;
+  $("apiKeyStatus").textContent = [providerText, s2].filter(Boolean).join(" · ");
 }
 
 async function openReport() {

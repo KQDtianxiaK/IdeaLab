@@ -90,6 +90,7 @@ class EvaluationRun(BaseModel):
     elo_scores: dict[str, float] = Field(default_factory=dict)
     dimension_aggregates: dict[str, dict[str, float]] = Field(default_factory=dict)
     model_disagreement: dict[str, Any] = Field(default_factory=dict)
+    meta_review: dict[str, Any] = Field(default_factory=dict)
     pareto_categories: dict[str, str] = Field(default_factory=dict)
     experiment_plans: list[ExperimentPlanStub] = Field(default_factory=list)
     created_at: str = Field(default_factory=now_iso)

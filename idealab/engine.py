@@ -963,6 +963,7 @@ class IdeaLabEngine:
         dimension_aggregates = evaluation.get("dimension_aggregates", {})
         pareto_categories = evaluation.get("pareto_categories", {})
         experiment_plans = evaluation.get("experiment_plans", [])
+        meta_review = evaluation.get("meta_review", {})
 
         lines = [
             f"# {title}",
@@ -1124,6 +1125,18 @@ class IdeaLabEngine:
                 lines.append(f"| {idea_id} | {score} | {elo_scores.get(idea_id, 'N/A')} | {self._format_inline(pareto_categories.get(idea_id, '未分类'))} | {self._format_inline(dim_text)} |")
             disagreement = evaluation.get("model_disagreement", {}).get("disagreement_rate", 0)
             lines.extend(["", f"模型分歧率：**{disagreement}**。分歧较高的成对比较需要人工复核或补充证据。", ""])
+            if isinstance(meta_review, dict) and meta_review:
+                lines.extend([
+                    "### 8.1 Meta-review",
+                    "",
+                    self._format_inline(meta_review.get("summary") or "暂无 meta-review 摘要。"),
+                    "",
+                    f"- 稳定推荐：{self._format_inline(meta_review.get('stable_recommendations', []))}",
+                    f"- 模型分歧：{self._format_inline(meta_review.get('model_disagreements', []))}",
+                    f"- 需要人工复核：{self._format_inline(meta_review.get('human_review_needed', []))}",
+                    f"- Prompt 反馈：{self._format_inline(meta_review.get('prompt_feedback', []))}",
+                    "",
+                ])
         else:
             lines.extend(["尚未形成 Evaluation 排名；通常需要至少两个候选 idea 才能进行成对比较。", ""])
 

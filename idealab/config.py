@@ -23,6 +23,13 @@ DEFAULT_MODELS = {
             "api_key_env": "DEEPSEEK_API_KEY",
             "default_model": "deepseek-v4-pro",
             "timeout_seconds": 60,
+        },
+        "openai_compatible": {
+            "label": "Custom OpenAI Compatible",
+            "base_url": "https://api.openai.com",
+            "api_key_env": "OPENAI_COMPATIBLE_API_KEY",
+            "default_model": "gpt-4.1",
+            "timeout_seconds": 60,
         }
     },
     "stage_models": {
@@ -52,7 +59,7 @@ DEFAULT_MODELS = {
         },
         "judge_secondary": {
             "provider": "deepseek",
-            "model": "deepseek-v4-pro",
+            "model": "deepseek-reasoner",
             "temperature": 0.35,
             "max_tokens": 8000,
         },
@@ -145,6 +152,17 @@ rank, idea_id, title, scores(novelty, feasibility, necessity, impact, testabilit
 - 标记报告中必须保留的不确定性。
 - 标记最需要用户或实验确认的地方。
 - 如果用户输入是 method_idea，指出还没有得到用户确认的假设。""",
+        "evaluation_dimension_design": """你是 IdeaLab 的评估维度设计专家。你的任务是基于输入类型、领域、问题拆解和文献证据，检查默认 Evaluation 维度是否足够。
+
+默认维度包括 novelty, necessity, feasibility, impact, testability, risk, evidence_strength, information_gain。
+
+输出 JSON，字段包括：
+summary, adjusted_dimensions, disabled_dimensions, added_dimensions, rationale, caution。
+
+要求：
+- 不要随意删除默认维度；只有明显不适用时才禁用。
+- added_dimensions 必须给出 id, label, description, weight, higher_is_better。
+- 维度必须可被 0-10 量化，并适合成对比较。""",
         "pairwise_judge": """你是 IdeaLab 的证据约束型科研想法评估裁判。你要比较两个候选 idea，而不是分别给好听的评价。
 
 必须严格基于：
@@ -159,12 +177,36 @@ winner(A/B/tie), confidence(0-1), dimension_scores, reasoning, evidence_refs, cr
 dimension_scores 必须以维度 id 为 key，每个维度包含 A, B, rationale。A/B 分数为 0-10，Risk 维度分数越高表示风险越低。
 reasoning 必须说明胜者为什么在当前证据下更值得推进。如果无法判断，winner 输出 tie。
 不要根据文字流畅度、篇幅或表述自信程度选择胜者。""",
+        "meta_review": """你是 IdeaLab 的评估汇总与系统反馈专家。你不再评估单个 idea，而是综合所有模型 judge 的成对比较、BTL/Elo 排名、维度分、分歧对、证据缺口和人工输入，生成系统级 meta-review。
+
+输出 JSON，字段包括：
+summary, stable_recommendations, model_disagreements, evidence_gaps, human_review_needed, prompt_feedback, next_evaluation_actions。
+
+要求：
+- stable_recommendations 说明哪些推荐在多模型下稳定。
+- model_disagreements 说明哪些 pair 或维度分歧最大。
+- human_review_needed 必须列出最需要人工确认的问题。
+- prompt_feedback 给出下一轮生成、critic 或 judge prompt 应补强的系统级反馈。
+- 必须明确区分文献证据、模型推理、人工输入和未执行实验。""",
         "evaluation_meta": """你是 IdeaLab 的评估汇总专家。基于多个模型的成对比较、维度分和证据，生成系统级评估摘要。
 
 输出 JSON，字段包括：
 summary, stable_recommendations, model_disagreements, evidence_gaps, human_review_needed, next_evaluation_actions。
 
 必须明确区分文献证据、模型推理、人工输入和未执行实验。""",
+        "idea_evolution": """你是 IdeaLab 的 idea evolution agent。你要基于 Evaluation 反馈改进候选 idea，而不是简单重写原文。
+
+输入会包含原始 idea、critic、pairwise judge 理由、维度短板和 meta-review。
+
+输出 JSON，字段包括：
+summary, evolved_ideas, retired_ideas, retained_assumptions, new_validation_priorities。
+
+evolved_ideas 每项必须包含 source_idea_id, title, hypothesis, what_changed, why_changed, expected_gain, new_risks, cheapest_validation。
+
+要求：
+- 保留原 idea 的可追踪来源。
+- 只针对明确短板修改，例如新颖性不足、机制不清、验证成本高、证据弱。
+- 不要因为评估结果差就自动美化；不可救的 idea 应进入 retired_ideas。""",
         "experiment_planning_stub": """你是 IdeaLab 的验证规划专家。你只规划最小验证实验，不执行实验、不声称已有真实实验结果。
 
 输出 JSON，字段包括：
@@ -376,7 +418,7 @@ def _write_local_env_values(updates: dict[str, str]) -> None:
     LOCAL_ENV_FILE.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-def save_local_env(updates: dict[str, str]) -> dict[str, bool]:
+def save_local_env(updates: dict[str, str]) -> dict[str, Any]:
     _write_local_env_values(updates)
     return get_api_key_status()
 
@@ -392,15 +434,18 @@ def _looks_like_secret(value: str | None) -> bool:
 def _sanitize_models_config(data: dict[str, Any]) -> tuple[dict[str, Any], bool]:
     changed = False
     providers = data.setdefault("providers", {})
-    deepseek = providers.setdefault("deepseek", {})
-    api_key_env = deepseek.get("api_key_env")
-    if isinstance(api_key_env, str) and _looks_like_secret(api_key_env):
-        _write_local_env_values({"DEEPSEEK_API_KEY": api_key_env})
-        deepseek["api_key_env"] = "DEEPSEEK_API_KEY"
-        changed = True
-    elif not api_key_env:
-        deepseek["api_key_env"] = "DEEPSEEK_API_KEY"
-        changed = True
+    for provider_name, provider in providers.items():
+        if not isinstance(provider, dict):
+            continue
+        default_env = f"{str(provider_name).upper()}_API_KEY"
+        api_key_env = provider.get("api_key_env")
+        if isinstance(api_key_env, str) and _looks_like_secret(api_key_env):
+            _write_local_env_values({default_env: api_key_env})
+            provider["api_key_env"] = default_env
+            changed = True
+        elif not api_key_env:
+            provider["api_key_env"] = default_env
+            changed = True
     return data, changed
 
 
@@ -443,7 +488,7 @@ def get_models_config() -> dict[str, Any]:
     data = read_json(path, DEFAULT_MODELS)
     data, merged = _merge_missing(DEFAULT_MODELS, data)
     data, changed = _sanitize_models_config(data)
-    changed = _upgrade_legacy_model_limits(data) or changed or merged
+    changed = _upgrade_legacy_model_limits(data) or _upgrade_phase2_judge_defaults(data) or changed or merged
     if changed:
         write_json(path, data)
     return data
@@ -512,6 +557,21 @@ def _upgrade_legacy_model_limits(data: dict[str, Any]) -> bool:
     return changed
 
 
+def _upgrade_phase2_judge_defaults(data: dict[str, Any]) -> bool:
+    stage_models = data.setdefault("stage_models", {})
+    cfg = stage_models.get("judge_secondary")
+    if (
+        isinstance(cfg, dict)
+        and cfg.get("provider") == "deepseek"
+        and cfg.get("model") == "deepseek-v4-pro"
+        and cfg.get("temperature") == 0.35
+        and cfg.get("max_tokens") == 8000
+    ):
+        cfg["model"] = "deepseek-reasoner"
+        return True
+    return False
+
+
 def _is_legacy_prompts(data: dict[str, Any]) -> bool:
     for dotted_key, legacy_value in LEGACY_PROMPT_MARKERS.items():
         section, key = dotted_key.split(".", 1)
@@ -539,16 +599,78 @@ def env_is_set(name: str | None) -> bool:
     return bool(name and os.getenv(name))
 
 
-def get_api_key_status() -> dict[str, bool]:
+def provider_api_key_updates(data: dict[str, Any]) -> dict[str, str]:
+    models = get_models_config()
+    providers = models.get("providers", {})
+    updates: dict[str, str] = {}
+
+    legacy = {
+        "deepseek_api_key": "deepseek",
+        "semantic_scholar_api_key": None,
+    }
+    for payload_key, provider_name in legacy.items():
+        value = str(data.get(payload_key) or "").strip()
+        if not value:
+            continue
+        if provider_name is None:
+            updates["S2_API_KEY"] = value
+            continue
+        provider = providers.get(provider_name, {})
+        env_name = provider.get("api_key_env") or f"{provider_name.upper()}_API_KEY"
+        updates[str(env_name)] = value
+
+    provider_keys = data.get("provider_api_keys", {})
+    if isinstance(provider_keys, dict):
+        for provider_name, value in provider_keys.items():
+            clean_value = str(value or "").strip()
+            if not clean_value:
+                continue
+            provider = providers.get(str(provider_name), {})
+            env_name = provider.get("api_key_env") or f"{str(provider_name).upper()}_API_KEY"
+            updates[str(env_name)] = clean_value
+
+    env_values = data.get("env_values", {})
+    if isinstance(env_values, dict):
+        for env_name, value in env_values.items():
+            clean_env = str(env_name or "").strip()
+            clean_value = str(value or "").strip()
+            if clean_env and clean_value:
+                updates[clean_env] = clean_value
+    return updates
+
+
+def get_api_key_status() -> dict[str, Any]:
     load_local_env()
     models = get_models_config()
     providers = models.get("providers", {})
-    deepseek_env = providers.get("deepseek", {}).get("api_key_env", "DEEPSEEK_API_KEY")
-    status = {
-        "deepseek": bool(os.getenv(deepseek_env)),
+    stage_models = models.get("stage_models", {})
+    used_providers = {
+        cfg.get("provider")
+        for cfg in stage_models.values()
+        if isinstance(cfg, dict) and cfg.get("provider")
+    }
+    provider_status: dict[str, dict[str, Any]] = {}
+    for name, provider in providers.items():
+        if not isinstance(provider, dict):
+            continue
+        env_name = provider.get("api_key_env") or f"{str(name).upper()}_API_KEY"
+        provider_status[str(name)] = {
+            "label": provider.get("label") or name,
+            "api_key_env": env_name,
+            "configured": bool(os.getenv(str(env_name))),
+            "required": name in used_providers,
+        }
+    status: dict[str, Any] = {
+        "providers": provider_status,
         "semantic_scholar": bool(os.getenv("S2_API_KEY")),
     }
-    status["all_required"] = status["deepseek"] and status["semantic_scholar"]
+    status["deepseek"] = provider_status.get("deepseek", {}).get("configured", False)
+    required_ok = all(
+        item["configured"]
+        for item in provider_status.values()
+        if item.get("required")
+    )
+    status["all_required"] = required_ok and status["semantic_scholar"]
     return status
 
 

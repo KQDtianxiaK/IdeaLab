@@ -17,6 +17,7 @@ from .config import (
     save_evaluation_config,
     save_models_config,
     save_prompts_config,
+    provider_api_key_updates,
 )
 from .engine import engine
 from .models import CreateRunRequest, HumanEvaluationJudgmentRequest, HumanInputRequest, RunSummary
@@ -169,11 +170,7 @@ async def get_api_keys() -> dict:
 
 @app.put("/api/config/api-keys")
 async def put_api_keys(data: dict) -> dict:
-    updates = {}
-    if data.get("deepseek_api_key"):
-        updates["DEEPSEEK_API_KEY"] = str(data["deepseek_api_key"])
-    if data.get("semantic_scholar_api_key"):
-        updates["S2_API_KEY"] = str(data["semantic_scholar_api_key"])
+    updates = provider_api_key_updates(data)
     return save_local_env(updates)
 
 

@@ -130,6 +130,18 @@ class EvaluationService:
         model_disagreement = self._model_disagreement(judgments)
         pareto_categories = self._pareto_categories(idea_items, btl_scores, dimension_aggregates)
         experiment_plans = self._experiment_plans(workspace, idea_items, fixed_prompts.get("experiment_planning_stub", ""))
+        meta_review = self._meta_review(
+            problem=problem,
+            ideas=idea_items,
+            judgments=judgments,
+            btl_scores=btl_scores,
+            elo_scores=elo_scores,
+            dimension_aggregates=dimension_aggregates,
+            model_disagreement=model_disagreement,
+            pareto_categories=pareto_categories,
+            evidence=evidence,
+            prompt=fixed_prompts.get("meta_review") or fixed_prompts.get("evaluation_meta", ""),
+        )
 
         run = EvaluationRun(
             evaluation_id=new_id("eval"),
@@ -140,6 +152,7 @@ class EvaluationService:
             elo_scores=elo_scores,
             dimension_aggregates=dimension_aggregates,
             model_disagreement=model_disagreement,
+            meta_review=meta_review,
             pareto_categories=pareto_categories,
             experiment_plans=experiment_plans,
         )
@@ -164,6 +177,7 @@ class EvaluationService:
                 "dimension_aggregates": payload.get("dimension_aggregates", {}),
                 "pareto_categories": payload.get("pareto_categories", {}),
                 "model_disagreement": payload.get("model_disagreement", {}),
+                "meta_review": payload.get("meta_review", {}),
             },
         )
         write_json(exp_dir / "plan_stubs.json", payload.get("experiment_plans", []))
@@ -459,3 +473,73 @@ class EvaluationService:
                     data[key] = fallback[key]
             plans.append(ExperimentPlanStub.model_validate(data))
         return plans
+
+    def _meta_review(
+        self,
+        problem: Any,
+        ideas: list[dict[str, Any]],
+        judgments: list[PairwiseJudgment],
+        btl_scores: dict[str, float],
+        elo_scores: dict[str, float],
+        dimension_aggregates: dict[str, dict[str, float]],
+        model_disagreement: dict[str, Any],
+        pareto_categories: dict[str, str],
+        evidence: Any,
+        prompt: str,
+    ) -> dict[str, Any]:
+        ranked_ids = sorted(btl_scores, key=btl_scores.get, reverse=True)
+        fallback = {
+            "summary": "Evaluation 已完成多模型成对比较；需要结合分歧对、证据缺口和人工复核决定最终推进路线。",
+            "stable_recommendations": [
+                {
+                    "idea_id": ranked_ids[0],
+                    "reason": "BTL 排名最高；仍需真实实验验证。",
+                }
+            ] if ranked_ids else [],
+            "model_disagreements": model_disagreement.get("disagreement_pairs", []),
+            "evidence_gaps": ["需要把关键 claim 绑定到更强文献证据或最小验证结果。"],
+            "human_review_needed": [
+                "复核模型分歧较高的成对比较。",
+                "确认最高排名 idea 的最小验证是否符合实际资源约束。",
+            ],
+            "prompt_feedback": [
+                "下一轮 ideation 应强制说明 novelty position 和 cheapest_validation。",
+                "下一轮 critic 应更明确列出替代解释和失败判据。",
+            ],
+            "next_evaluation_actions": [
+                "补充证据后重新运行 Evaluation。",
+                "对 top idea 与高分歧 pair 添加人工 judgment。",
+            ],
+        }
+        data, meta = self.llm.complete_json(
+            "evaluation_meta",
+            prompt,
+            json.dumps(
+                {
+                    "problem": problem,
+                    "ideas": ideas,
+                    "judgments": [judgment.model_dump() for judgment in judgments],
+                    "btl_scores": btl_scores,
+                    "elo_scores": elo_scores,
+                    "dimension_aggregates": dimension_aggregates,
+                    "model_disagreement": model_disagreement,
+                    "pareto_categories": pareto_categories,
+                    "evidence": evidence,
+                    "instruction": "生成系统级 meta-review，不要重新评估单个 idea。真实实验尚未执行。",
+                },
+                ensure_ascii=False,
+            ),
+            fallback,
+        )
+        if not isinstance(data, dict):
+            data = fallback
+        data.setdefault("summary", fallback["summary"])
+        data.setdefault("stable_recommendations", fallback["stable_recommendations"])
+        data.setdefault("model_disagreements", fallback["model_disagreements"])
+        data.setdefault("evidence_gaps", fallback["evidence_gaps"])
+        data.setdefault("human_review_needed", fallback["human_review_needed"])
+        data.setdefault("prompt_feedback", fallback["prompt_feedback"])
+        data.setdefault("next_evaluation_actions", fallback["next_evaluation_actions"])
+        data["model"] = f"{meta.get('provider', 'mock')}:{meta.get('model', 'mock')}"
+        data["used_fallback"] = bool(meta.get("used_fallback"))
+        return data

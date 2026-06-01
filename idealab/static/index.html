@@ -68,11 +68,8 @@
           <button id="settingsClose" class="close">×</button>
           <h2>IdeaLab 设置</h2>
           <p class="muted">API key 保存到本地 <code>idealab_config/.env</code>；已保存的 key 不会回显。</p>
+          <div id="providerKeyInputs" class="api-key-grid"></div>
           <div class="api-key-grid">
-            <label>
-              DeepSeek API Key
-              <input id="deepseekKey" type="password" autocomplete="off" placeholder="留空表示不修改" />
-            </label>
             <label>
               Semantic Scholar API Key
               <input id="s2Key" type="password" autocomplete="off" placeholder="留空表示不修改" />
@@ -80,6 +77,8 @@
           </div>
           <div id="apiKeyStatus" class="muted"></div>
           <h3>模型配置</h3>
+          <p class="muted">Provider 使用 OpenAI-compatible <code>/v1/chat/completions</code> 接口；API key 保存到对应 <code>api_key_env</code>。</p>
+          <div id="providersEditor" class="settings-cards"></div>
           <p class="muted">每个阶段可以使用不同模型；勾选“不限制输出 token”时，请求中不会传 <code>max_tokens</code>。</p>
           <div id="modelsEditor" class="settings-cards"></div>
           <h3>Prompt 配置</h3>
