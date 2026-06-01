@@ -162,7 +162,9 @@ async function loadHealth() {
       $("health").textContent = "API 状态正常";
     } else {
       const missing = [];
-      if (!keys.deepseek) missing.push("DeepSeek");
+      Object.entries(keys.providers || {}).forEach(([name, status]) => {
+        if (status.required && !status.configured) missing.push(status.label || name);
+      });
       if (!keys.semantic_scholar) missing.push("Semantic Scholar");
       $("health").textContent = `API 未完全配置：${missing.join("、")}`;
     }
@@ -340,6 +342,20 @@ function renderGraph(graph) {
   if (!$("details").classList.contains("hidden") && currentDetailsNodeId) {
     renderDetailsNodeNav(currentDetailsNodeId);
   }
+  renderHumanTargetOptions(graph);
+}
+
+function renderHumanTargetOptions(graph) {
+  const select = $("humanTargetNode");
+  if (!select) return;
+  const currentValue = select.value;
+  const nodes = graph.nodes || [];
+  select.innerHTML = `<option value="">当前流程</option>` + nodes.map((node) => `
+    <option value="${escapeHtml(node.id)}">${escapeHtml(node.type)} · ${escapeHtml(node.title)}</option>
+  `).join("");
+  if ([...select.options].some((option) => option.value === currentValue)) {
+    select.value = currentValue;
+  }
 }
 
 function bindNodeDrag(el, node, initialPos) {
@@ -413,6 +429,8 @@ function renderNodeDetails(node) {
   if (node.type === "evaluation" && node.output) {
     return renderEvaluationNodeDetails(node);
   }
+  const typed = renderTypedNodeDetails(node);
+  if (typed) return typed;
   const sections = [
     { id: "summary", title: "节点摘要", value: { summary: node.summary || "暂无摘要" }, open: true },
     {
@@ -443,6 +461,73 @@ function renderNodeDetails(node) {
     </aside>
     <section class="details-content">${cards}</section>
   `;
+}
+
+function renderTypedNodeDetails(node) {
+  const output = node.output || {};
+  const typeSections = {
+    problem: [
+      ["任务定位", pickFields(output, ["title", "input_type", "domain", "problem_stage", "objective", "core_claim_or_question"])],
+      ["成功标准与澄清", pickFields(output, ["success_criteria", "clarification_questions", "hidden_assumptions"])],
+      ["初始客观评价", output.initial_objective_evaluation],
+    ],
+    literature: [
+      ["检索与状态", pickFields(output, ["summary", "query", "ok", "error", "evidence_count"])],
+      ["证据列表", output.evidence],
+      ["证据缺口", pickFields(output, ["evidence_gaps", "novelty_risks", "known_baseline_categories"])],
+    ],
+    idea: [
+      ["核心假设", pickFields(output, ["id", "title", "target_problem", "hypothesis", "short_hypothesis", "novelty_position"])],
+      ["机制与实现", pickFields(output, ["proposed_mechanism", "mechanism", "why_it_might_work", "implementation_variants"])],
+      ["证据、验证与风险", pickFields(output, ["required_evidence", "key_assumptions", "expected_results", "cheapest_validation", "validation", "risks"])],
+    ],
+    reasoning: [
+      ["机制推演", pickFields(output, ["summary", "reasoning_paths", "paths", "causal_chain", "implementation_details"])],
+      ["验证与反例", pickFields(output, ["expected_observations", "validation_design", "possible_counterexamples", "what_would_change_our_mind"])],
+    ],
+    critic: [
+      ["批判摘要", pickFields(output, ["summary", "objective_evaluation"])],
+      ["风险与替代解释", pickFields(output, ["critical_risks", "risks", "alternative_explanations", "missing_controls", "likely_failure_cases"])],
+      ["修订建议", output.required_revisions || output.recommendations],
+    ],
+    comparison: [
+      ["最终推荐", pickFields(output, ["summary", "recommended_route", "recommendation"])],
+      ["候选排序", output.ranked_ideas],
+      ["暂缓/放弃与验证路线", pickFields(output, ["rejected_or_deprioritized_routes", "validation_roadmap"])],
+    ],
+    report: [
+      ["报告预览", output.preview || output.path || output],
+    ],
+    human_input: [
+      ["人工干预", node.input],
+      ["处理状态", node.output],
+    ],
+  };
+  const entries = typeSections[node.type];
+  if (!entries) return "";
+  const sections = [
+    { id: "summary", title: "节点摘要", value: { summary: node.summary || "暂无摘要" }, open: true },
+    ...entries.map(([title, value], index) => ({ id: `typed-${index}`, title, value, open: true })),
+    { id: "raw", title: "原始 JSON", value: node, open: false, raw: true },
+  ];
+  const toc = sections.map((section) => `<a href="#detail-${section.id}">${escapeHtml(section.title)}</a>`).join("");
+  const cards = sections.map((section) => renderValueCard(section.title, section.value, section)).join("");
+  return `
+    <aside class="detail-toc">
+      <strong>目录</strong>
+      ${toc}
+    </aside>
+    <section class="details-content">${cards}</section>
+  `;
+}
+
+function pickFields(source, keys) {
+  const result = {};
+  if (!source || typeof source !== "object") return result;
+  keys.forEach((key) => {
+    if (source[key] != null && source[key] !== "") result[key] = source[key];
+  });
+  return result;
 }
 
 function renderEvaluationNodeDetails(node) {
@@ -783,9 +868,15 @@ function markdownToHtml(markdown) {
 async function sendHumanInput() {
   const content = $("humanInput").value.trim();
   if (!content || !currentRunId) return;
+  const interventionType = $("humanInterventionType").value;
   await api(`/api/runs/${currentRunId}/human-input`, {
     method: "POST",
-    body: JSON.stringify({ content }),
+    body: JSON.stringify({
+      content,
+      target_type: $("humanTargetType").value,
+      intervention_type: interventionType,
+      target_node_id: $("humanTargetNode").value || null,
+    }),
   });
   $("humanInput").value = "";
   await refreshGraph();
@@ -973,6 +1064,110 @@ async function openReport() {
   $("reportBody").innerHTML = markdown ? markdownToHtml(markdown) : `<p class="muted">报告尚未生成。</p>`;
 }
 
+function latestOutput(type) {
+  const nodes = (currentGraph?.nodes || []).filter((node) => node.type === type && node.output != null);
+  return nodes.length ? nodes[nodes.length - 1].output : null;
+}
+
+function allOutputs(type) {
+  return (currentGraph?.nodes || []).filter((node) => node.type === type && node.output != null).map((node) => node.output);
+}
+
+function openOverview() {
+  if (!currentGraph) return;
+  $("overview").classList.remove("hidden");
+  $("overviewBody").innerHTML = renderOverview();
+}
+
+function renderOverview() {
+  const evaluation = latestOutput("evaluation") || {};
+  const literature = latestOutput("literature") || {};
+  const problem = latestOutput("problem") || {};
+  const ideaNodes = allOutputs("idea");
+  const humanInputs = (currentGraph.nodes || []).filter((node) => node.type === "human_input");
+  const assumptions = collectAssumptions(problem, latestOutput("decomposition"), ideaNodes);
+  return `
+    <section class="overview-grid">
+      <article class="overview-card wide">
+        <h3>Idea Ranking</h3>
+        ${renderEvaluationRanking(evaluation)}
+      </article>
+      <article class="overview-card wide">
+        <h3>Score Heatmap</h3>
+        ${renderDimensionTable(evaluation.dimension_aggregates || {})}
+      </article>
+      <article class="overview-card">
+        <h3>Evidence Map</h3>
+        ${renderEvidenceMap(literature)}
+      </article>
+      <article class="overview-card">
+        <h3>Assumption Ledger</h3>
+        ${renderAssumptionLedger(assumptions)}
+      </article>
+      <article class="overview-card wide">
+        <h3>Validation Plan</h3>
+        ${renderExperimentPlans(evaluation.experiment_plans || [])}
+      </article>
+      <article class="overview-card wide">
+        <h3>Human Decision Log</h3>
+        ${renderHumanDecisionLog(humanInputs)}
+      </article>
+      <article class="overview-card wide">
+        <h3>Pairwise Battle Log</h3>
+        ${renderPairwiseJudgments(evaluation.judgments || [])}
+      </article>
+    </section>
+  `;
+}
+
+function collectAssumptions(problem, decomposition, ideas) {
+  const items = [];
+  const add = (source, value) => {
+    if (Array.isArray(value)) value.forEach((item) => items.push({ source, text: item }));
+    else if (value) items.push({ source, text: value });
+  };
+  add("problem", problem?.hidden_assumptions);
+  add("decomposition", decomposition?.assumptions);
+  ideas.forEach((idea) => add(idea.id || idea.title || "idea", idea.key_assumptions));
+  return items;
+}
+
+function renderEvidenceMap(literature) {
+  const evidence = literature?.evidence || [];
+  if (!evidence.length) return `<p class="muted">暂无证据。补充 Semantic Scholar key 或重新运行文献节点后会显示。</p>`;
+  return `<div class="evidence-list">${evidence.slice(0, 10).map((item) => `
+    <article class="evidence-item">
+      <strong>${escapeHtml(item.title || "Untitled")}</strong>
+      <p>${escapeHtml([item.year, item.venue, `citations=${item.citation_count ?? 0}`].filter(Boolean).join(" · "))}</p>
+      <small>${escapeHtml(item.relevance || "Semantic Scholar query result")}</small>
+    </article>
+  `).join("")}</div>`;
+}
+
+function renderAssumptionLedger(items) {
+  if (!items.length) return `<p class="muted">暂无显式假设。</p>`;
+  return `<div class="assumption-list">${items.slice(0, 18).map((item) => `
+    <article class="assumption-item">
+      <span>${escapeHtml(item.source)}</span>
+      <p>${escapeHtml(formatScalar(item.text))}</p>
+    </article>
+  `).join("")}</div>`;
+}
+
+function renderHumanDecisionLog(nodes) {
+  if (!nodes.length) return `<p class="muted">暂无人工干预。</p>`;
+  return `<div class="decision-list">${nodes.map((node) => `
+    <article class="decision-item">
+      <header>
+        <strong>${escapeHtml(node.input?.intervention_type || "comment")}</strong>
+        <span>${escapeHtml(node.input?.target_type || "run")}</span>
+      </header>
+      <p>${escapeHtml(node.input?.content || node.summary || "")}</p>
+      <small>${escapeHtml(node.input?.target_node_id || "当前流程")}</small>
+    </article>
+  `).join("")}</div>`;
+}
+
 async function openHistory() {
   $("history").classList.remove("hidden");
   $("historyList").innerHTML = `<p class="muted">正在加载...</p>`;
@@ -1040,6 +1235,8 @@ function bindEvents() {
   $("historyOpen").addEventListener("click", openHistory);
   $("historyOpenLanding").addEventListener("click", openHistory);
   $("historyClose").addEventListener("click", () => $("history").classList.add("hidden"));
+  $("overviewOpen").addEventListener("click", openOverview);
+  $("overviewClose").addEventListener("click", () => $("overview").classList.add("hidden"));
   $("reportOpen").addEventListener("click", openReport);
   $("reportClose").addEventListener("click", () => $("report").classList.add("hidden"));
 }

@@ -33,6 +33,7 @@
           <div class="topbar-actions">
             <button id="newRun">新推演</button>
             <button id="historyOpen">历史</button>
+            <button id="overviewOpen">概览</button>
             <button id="reportOpen">报告</button>
             <button id="settingsOpen2">设置</button>
             <button id="stopRun">停止</button>
@@ -45,6 +46,24 @@
         </section>
 
         <footer class="human-input">
+          <select id="humanTargetType" title="干预对象">
+            <option value="run">Run</option>
+            <option value="idea">Idea</option>
+            <option value="evaluation">Evaluation</option>
+            <option value="experiment_plan">Experiment</option>
+            <option value="node">Node</option>
+          </select>
+          <select id="humanInterventionType" title="干预类型">
+            <option value="comment">评论</option>
+            <option value="score_override">评分覆盖</option>
+            <option value="approve">批准</option>
+            <option value="reject">拒绝</option>
+            <option value="merge">合并</option>
+            <option value="request_recompute">重新评估</option>
+          </select>
+          <select id="humanTargetNode" title="目标节点">
+            <option value="">当前流程</option>
+          </select>
           <input id="humanInput" placeholder="中途插入你的想法：会在当前 loop 后注入下一轮..." />
           <button id="sendHumanInput">插入</button>
         </footer>
@@ -106,6 +125,14 @@
           <button id="historyClose" class="close">×</button>
           <h2>历史推演</h2>
           <div id="historyList" class="history-list"></div>
+        </div>
+      </aside>
+
+      <aside id="overview" class="modal hidden">
+        <div class="modal-panel overview-panel">
+          <button id="overviewClose" class="close">×</button>
+          <h2>研究决策概览</h2>
+          <div id="overviewBody" class="overview-body"></div>
         </div>
       </aside>
 

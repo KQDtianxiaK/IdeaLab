@@ -26,6 +26,11 @@ class CreateRunRequest(BaseModel):
 
 class HumanInputRequest(BaseModel):
     content: str = Field(min_length=1)
+    target_node_id: str | None = None
+    target_type: Literal["run", "idea", "evaluation", "experiment_plan", "node"] = "run"
+    intervention_type: Literal["comment", "score_override", "approve", "reject", "merge", "request_recompute"] = "comment"
+    idea_id: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class HumanEvaluationJudgmentRequest(BaseModel):

@@ -66,7 +66,7 @@ class LLMClient:
             return fallback, meta
 
         base_url = str(provider.get("base_url", "")).rstrip("/")
-        url = f"{base_url}/v1/chat/completions"
+        url = f"{base_url}/chat/completions" if base_url.endswith("/v1") else f"{base_url}/v1/chat/completions"
         payload = {
             "model": meta["model"],
             "temperature": cfg.get("temperature", 0.4),

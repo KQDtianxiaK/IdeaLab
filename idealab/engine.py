@@ -82,19 +82,40 @@ class IdeaLabEngine:
     def add_human_input(self, run_id: str, request: HumanInputRequest) -> Graph:
         workspace = run_dir(run_id)
         graph = load_graph(workspace)
-        parent_id = graph.nodes[-1].id if graph.nodes else None
+        parent_id = request.target_node_id or (graph.nodes[-1].id if graph.nodes else None)
+        title_map = {
+            "comment": "人类补充想法",
+            "score_override": "人工评分覆盖",
+            "approve": "人工批准",
+            "reject": "人工拒绝",
+            "merge": "人工合并建议",
+            "request_recompute": "请求重新评估",
+        }
         node = Node(
             id=new_id("node"),
             parent_id=parent_id,
             type="human_input",
-            title="人类补充想法",
+            title=title_map.get(request.intervention_type, "人类补充想法"),
             status="completed",
             summary=request.content[:160],
-            input={"content": request.content},
-            output={"injection_policy": "将在当前 loop 结束后作为强上下文注入下一轮。"},
+            input={
+                "content": request.content,
+                "target_node_id": request.target_node_id,
+                "target_type": request.target_type,
+                "intervention_type": request.intervention_type,
+                "idea_id": request.idea_id,
+                "metadata": request.metadata,
+            },
+            output={
+                "injection_policy": "将在当前 loop 结束后作为强上下文注入下一轮。",
+                "targeted": bool(request.target_node_id or request.idea_id),
+                "requires_recompute": request.intervention_type == "request_recompute",
+            },
             confidence=1.0,
         )
         add_node(workspace, node)
+        if request.intervention_type == "request_recompute":
+            self.recompute_evaluation(run_id)
         return load_graph(workspace)
 
     def load_evaluation(self, run_id: str) -> dict[str, Any] | None:
@@ -105,13 +126,25 @@ class IdeaLabEngine:
         graph = load_graph(workspace)
         by_type = {node.type: node.output for node in graph.nodes if node.output is not None}
         branches = self._branch_results_from_graph(graph)
-        return EvaluationService().run(
+        evaluation = EvaluationService().run(
             workspace=workspace,
             problem=by_type.get("problem"),
             ideas=by_type.get("ideation"),
             branches=branches,
             evidence=by_type.get("literature"),
         )
+        graph = load_graph(workspace)
+        evaluation_nodes = [node for node in graph.nodes if node.type == "evaluation"]
+        if evaluation_nodes:
+            update_node(
+                workspace,
+                evaluation_nodes[-1].id,
+                summary=self._evaluation_summary(evaluation),
+                output=evaluation,
+                model=", ".join(evaluation.get("spec", {}).get("judge_models", [])),
+                scores=evaluation.get("btl_scores", {}),
+            )
+        return evaluation
 
     def add_human_evaluation_judgment(self, run_id: str, request: HumanEvaluationJudgmentRequest) -> dict[str, Any]:
         return append_human_judgment(run_dir(run_id), request)

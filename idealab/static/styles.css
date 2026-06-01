@@ -230,12 +230,18 @@ button:hover {
   border-bottom: 0;
 }
 
-.human-input input {
+.human-input input,
+.human-input select {
   flex: 1;
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 11px 12px;
   font: inherit;
+}
+
+.human-input select {
+  flex: 0 0 150px;
+  background: #fff;
 }
 
 .details-page {
@@ -802,6 +808,72 @@ code {
   width: min(900px, 100%);
 }
 
+.overview-panel {
+  width: min(1180px, 100%);
+}
+
+.overview-body {
+  margin-top: 14px;
+}
+
+.overview-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.overview-card {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 14px;
+  background: #fff;
+}
+
+.overview-card.wide {
+  grid-column: 1 / -1;
+}
+
+.overview-card h3 {
+  margin: 0 0 12px;
+}
+
+.evidence-list,
+.assumption-list,
+.decision-list {
+  display: grid;
+  gap: 10px;
+}
+
+.evidence-item,
+.assumption-item,
+.decision-item {
+  border: 1px solid #edf1f7;
+  border-radius: 8px;
+  padding: 10px;
+  background: #fbfcff;
+}
+
+.evidence-item p,
+.assumption-item p,
+.decision-item p {
+  margin: 5px 0;
+  line-height: 1.45;
+}
+
+.evidence-item small,
+.assumption-item span,
+.decision-item small,
+.decision-item span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.decision-item header {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+
 .history-panel {
   width: min(860px, 100%);
 }
@@ -843,9 +915,14 @@ code {
   .history-item,
   .api-key-grid,
   .config-grid,
-  .eval-summary {
+  .eval-summary,
+  .overview-grid {
     grid-template-columns: 1fr;
     display: grid;
+  }
+
+  .overview-card.wide {
+    grid-column: auto;
   }
 
   .composer-footer button,

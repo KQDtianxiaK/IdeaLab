@@ -30,6 +30,13 @@ DEFAULT_MODELS = {
             "api_key_env": "OPENAI_COMPATIBLE_API_KEY",
             "default_model": "gpt-4.1",
             "timeout_seconds": 60,
+        },
+        "cstcloud": {
+            "label": "CSTCloud Uni API",
+            "base_url": "https://uni-api.cstcloud.cn/v1",
+            "api_key_env": "CSTCLOUD_API_KEY",
+            "default_model": "minimax-m27",
+            "timeout_seconds": 60,
         }
     },
     "stage_models": {
@@ -58,9 +65,9 @@ DEFAULT_MODELS = {
             "max_tokens": 8000,
         },
         "judge_secondary": {
-            "provider": "deepseek",
-            "model": "deepseek-reasoner",
-            "temperature": 0.35,
+            "provider": "cstcloud",
+            "model": "minimax-m27",
+            "temperature": 0.25,
             "max_tokens": 8000,
         },
         "evaluation_meta": {
@@ -563,11 +570,12 @@ def _upgrade_phase2_judge_defaults(data: dict[str, Any]) -> bool:
     if (
         isinstance(cfg, dict)
         and cfg.get("provider") == "deepseek"
-        and cfg.get("model") == "deepseek-v4-pro"
-        and cfg.get("temperature") == 0.35
+        and cfg.get("model") in {"deepseek-v4-pro", "deepseek-reasoner"}
         and cfg.get("max_tokens") == 8000
     ):
-        cfg["model"] = "deepseek-reasoner"
+        cfg["provider"] = "cstcloud"
+        cfg["model"] = "minimax-m27"
+        cfg["temperature"] = 0.25
         return True
     return False
 
