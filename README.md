@@ -5,146 +5,89 @@
   <a href="./README.zh-CN.md"><img alt="中文" src="https://img.shields.io/badge/语言-中文-00A676"></a>
 </p>
 
-IdeaLab is a local, single-user AI research ideation system focused on
-problem-driven idea generation, deep reasoning, evidence tracking, and
-structured research reports.
+IdeaLab is a local AI research ideation workbench. It helps researchers turn an
+open question, research direction, method idea, or early result into a traceable
+reasoning graph, quantitative idea evaluation, and a structured research report.
 
-Unlike AI Scientist-style systems that primarily optimize automated experiment
-execution, IdeaLab starts earlier in the research workflow. Its goal is to help
-researchers decide **what is worth pursuing** before investing heavily in
-experiments.
+IdeaLab is intentionally positioned before full experiment automation. Its main
+job is to help answer: **which idea is worth pursuing next, and why?**
 
-IdeaLab turns a user-provided research question, direction, method idea, or
-early result into a traceable reasoning graph:
+## Status
 
-```text
-Problem -> Ideas -> Reasoning -> Validation -> Conclusion
-```
-
-The final output is not a short answer. It is a structured research reasoning
-report with objective evaluation, literature evidence, candidate idea branches,
-implementation plans, validation designs, risks, conclusions, and next steps.
-
-## Current Status
-
-IdeaLab is currently a local prototype. It is suitable for:
-
-- exploring research directions;
-- refining method ideas before experiments;
-- comparing alternative solution paths;
-- creating a traceable reasoning graph for discussion;
-- generating a detailed staged research report.
-
-It is not yet a full automated experiment platform. Code execution, sandboxed
-experiments, benchmark evaluation, and paper-writing extensions are planned
-future modules.
-
-## Key Features
-
-- Minimal web interface: a large IdeaLab title, one input box, and mode
-  selection.
-- Fixed workflow mode: follows a structured research reasoning pipeline.
-- Free exploration mode: lets the AI agent choose the next best action.
-- Reasoning graph UI: every stage becomes a node in a visual graph.
-- Branching idea graph: multiple candidate ideas become independent branches
-  before being merged into path comparison.
-- Full-screen node reader: node details are rendered as readable cards with a
-  table of contents, collapsible sections, bilingual field labels, and direct
-  node switching.
-- Human-in-the-loop injection: users can add thoughts during a run; the system
-  injects them into later reasoning.
-- Local configuration UI: prompts, model settings, and output token behavior
-  can be edited from the browser.
-- Local API key storage: API keys are stored in `idealab_config/.env`, never in
-  browser local storage.
-- Semantic Scholar integration: literature search is used as an evidence layer.
-- Multi-stage model configuration: different stages can use different models,
-  temperatures, and max-token settings.
-- No-token-limit switch: `max_tokens: null` omits `max_tokens` from the model
-  request.
-- Historical runs: previous reasoning workspaces can be reopened.
-- Fixed report template: final reports follow a 15-section research report
-  format.
-
-## Workflow
-
-### Fixed Mode
-
-The fixed workflow currently runs:
-
-1. Problem normalization
-2. Optional clarification for method ideas
-3. Problem decomposition
-4. Literature and evidence search
-5. Candidate idea generation
-6. Per-idea branch creation
-7. Mechanism reasoning per branch
-8. Critic and risk analysis per branch
-9. Path comparison and ranking
-10. Cross-review
-11. Final research report generation
-
-### Free Mode
-
-In free mode, the AI agent can choose from actions such as:
-
-- `decompose`
-- `literature`
-- `ideate`
-- `reason`
-- `critic`
-- `compare`
-- `validate`
-- `report`
-
-The goal is to maximize final research judgment quality rather than follow a
-fixed sequence.
-
-## Final Report Format
-
-Final reports are generated as Markdown and stored at:
+IdeaLab is a local single-user prototype with an end-to-end research ideation
+loop:
 
 ```text
-idealab_workspaces/<run_id>/reports/report.md
+problem -> decomposition -> literature -> ideation
+-> per-idea reasoning + critic -> evaluation
+-> comparison -> cross_review -> report
 ```
 
-The report follows this fixed 15-section structure:
+The current system can generate candidate ideas, reason through their mechanisms,
+criticize each branch, run multi-dimensional pairwise evaluation, rank ideas with
+BTL/Elo-style scores, and produce a final Markdown report.
 
-1. Executive Summary
-2. Input Parsing and Task Positioning
-3. Background and Research Value
-4. Initial Objective Evaluation
-5. Key Problem Decomposition
-6. Literature and Evidence Analysis
-7. Candidate Ideas and Branch Reasoning
-8. Path Comparison and Final Recommendation
-9. Implementation Plan
-10. Validation and Experiments
-11. Result Analysis
-12. Risks, Counterexamples, and Failure Modes
-13. Conclusion
-14. Next-Step Plan
-15. Appendix
+Real experiment execution is not implemented yet. Experiment plans are included
+in the evaluation loop as `planned` / `skipped` validation stubs and are clearly
+reported as not executed.
 
-See [REPORT_TEMPLATE.md](REPORT_TEMPLATE.md) for the detailed Chinese template.
+## Highlights
+
+- **Traceable reasoning graph**: each workflow step becomes a node with input,
+  output, model provenance, tool calls, and status.
+- **Human-friendly node reader**: node pages explain what the step does, surface
+  key findings first, and hide raw JSON behind collapsible details.
+- **Multi-model evaluation**: configurable judge stages compare candidate ideas
+  pairwise across dimensions such as novelty, necessity, feasibility, impact,
+  testability, risk, evidence strength, and information gain.
+- **Quantitative ranking**: pairwise judgments are aggregated into BTL and Elo
+  scores, dimension tables, model disagreement summaries, and Pareto categories.
+- **Evidence-aware literature search**: Semantic Scholar queries are planned by
+  the literature prompt, executed as multiple searches, de-duplicated, and stored
+  as local evidence metadata.
+- **Experiment-plan stubs**: each idea can receive minimum validation plans,
+  metrics, controls, ablations, expected results, and failure signals without
+  executing experiments.
+- **Human-in-the-loop control**: users can inject comments, approvals, rejections,
+  score overrides, merge hints, and recompute requests during a run.
+- **Breakpoint resume**: failed or stopped fixed runs can resume from supported
+  downstream nodes such as evaluation, comparison, cross-review, or report.
+- **Local-first configuration**: providers, stage models, prompts, and API keys
+  are editable from the browser and persisted locally.
+
+## User Interface
+
+The web UI is served by the same FastAPI process. It includes:
+
+- a graph canvas with drag-to-pan and draggable nodes;
+- node cards that show node type, status, summary, and model label;
+- full-screen node details with a left-side table of contents;
+- research decision overview with ranking, heatmap, battle log, evidence map,
+  assumption ledger, validation plan, and human decision log;
+- settings, history, overview, and report dialogs that close on backdrop click;
+- Markdown report viewer.
 
 ## Project Structure
 
 ```text
-idealab/
-├── app.py                 # FastAPI app and REST endpoints
-├── config.py              # local config, prompt defaults, .env loading
-├── engine.py              # fixed/free reasoning runners and report generation
-├── llm.py                 # OpenAI-compatible chat-completion adapter
-├── models.py              # Pydantic graph/run/node models
-├── storage.py             # workspace and graph persistence
-├── tools.py               # Semantic Scholar integration
+.
+├── README.md
+├── README.zh-CN.md
+├── REPORT_TEMPLATE.md     # Chinese report template
 ├── requirements.txt       # Python dependencies
-├── REPORT_TEMPLATE.md     # fixed research report template
-└── static/
-    ├── index.html         # web UI
-    ├── styles.css         # visual styles
-    └── app.js             # graph UI, settings, history, report viewer
+└── idealab/
+    ├── app.py             # FastAPI app and REST endpoints
+    ├── config.py          # local config, defaults, .env loading
+    ├── engine.py          # fixed/free workflows, resume, report generation
+    ├── evaluation.py      # pairwise judging, BTL/Elo, experiment stubs
+    ├── llm.py             # OpenAI-compatible chat-completion client
+    ├── models.py          # Pydantic graph, node, run, evaluation models
+    ├── storage.py         # workspace and graph persistence
+    ├── tools.py           # Semantic Scholar integration
+    └── static/
+        ├── index.html     # browser UI
+        ├── styles.css     # styles
+        └── app.js         # graph UI, settings, overview, report viewer
 ```
 
 Runtime files are created outside the package:
@@ -152,16 +95,23 @@ Runtime files are created outside the package:
 ```text
 idealab_config/
 ├── .env                   # local API keys, gitignored
-├── models.json            # model/provider/stage configuration
-└── prompts.json           # editable prompt templates
+├── models.json            # providers and stage model config
+├── prompts.json           # editable prompt templates
+└── evaluation.json        # dimensions, judge stages, evaluation policy
 
 idealab_workspaces/
 └── <run_id>/
-    ├── graph.json         # reasoning graph
-    ├── events.jsonl       # audit event stream
+    ├── graph.json
+    ├── events.jsonl
     ├── problem.json
     ├── ideas.json
     ├── evidence/
+    ├── evaluations/
+    │   ├── evaluation_run.json
+    │   ├── pairwise_judgments.jsonl
+    │   └── rankings.json
+    ├── experiments/
+    │   └── plan_stubs.json
     └── reports/report.md
 ```
 
@@ -169,22 +119,20 @@ idealab_workspaces/
 
 Python 3.10+ is recommended.
 
-### Option A: uv
-
-From the repository root:
+### uv
 
 ```bash
 uv venv
 source .venv/bin/activate
-uv pip install -r idealab/requirements.txt
+uv pip install -r requirements.txt
 ```
 
-### Option B: pip
+### pip
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -r idealab/requirements.txt
+pip install -r requirements.txt
 ```
 
 ## Quick Start
@@ -201,75 +149,93 @@ Open:
 http://127.0.0.1:8765
 ```
 
-The frontend and backend are served by the same FastAPI process.
-
 ## API Keys
 
-IdeaLab can run with deterministic fallbacks when API keys are missing, but real
-LLM reasoning and literature search require API keys.
+IdeaLab can run with deterministic fallbacks when keys are missing, but real
+model calls and literature search require API keys.
 
-Currently supported keys:
+Common keys:
 
 - `DEEPSEEK_API_KEY`
+- `CSTCLOUD_API_KEY`
 - `S2_API_KEY`
+- any custom provider key configured through `api_key_env`
 
-Recommended: open the settings panel in the web UI and save keys there. They
-are written to:
+Recommended setup: open the settings panel and save keys there. They are written
+to:
 
 ```text
 idealab_config/.env
 ```
 
-This file is gitignored and keys are never echoed back to the browser.
+Keys are not echoed back to the browser and are not stored in browser local
+storage.
 
-You can also create it manually:
+Manual setup is also supported:
 
 ```bash
 mkdir -p idealab_config
-cat > idealab_config/.env <<'EOF'
-DEEPSEEK_API_KEY="..."
-S2_API_KEY="..."
-EOF
-```
-
-Or export keys before starting:
-
-```bash
-export DEEPSEEK_API_KEY="..."
-export S2_API_KEY="..."
-python3 -m idealab.app
+printf 'DEEPSEEK_API_KEY="..."\nS2_API_KEY="..."\n' > idealab_config/.env
 ```
 
 ## Model and Prompt Configuration
 
-Model configuration is stored in:
+IdeaLab uses OpenAI-compatible chat completion endpoints. Provider and stage
+configuration is stored in:
 
 ```text
 idealab_config/models.json
 ```
 
-Prompt configuration is stored in:
-
-```text
-idealab_config/prompts.json
-```
-
-Both can be edited from the settings panel.
-
-Each stage can use its own model settings, for example:
+Important stage keys include:
 
 - `default`
 - `ideation`
 - `critic`
 - `report`
+- `judge_primary`
+- `judge_secondary`
+- `evaluation_meta`
 
-If a stage has:
+Prompt templates are stored in:
+
+```text
+idealab_config/prompts.json
+```
+
+Evaluation settings are stored in:
+
+```text
+idealab_config/evaluation.json
+```
+
+If a stage sets:
 
 ```json
 "max_tokens": null
 ```
 
-IdeaLab omits `max_tokens` from the model API request.
+IdeaLab omits `max_tokens` from that model request.
+
+## Evaluation Model
+
+Evaluation is a first-class workflow stage, not a report appendix. The default
+evaluation pipeline:
+
+1. extracts up to `max_ideas` candidate ideas;
+2. creates a pairwise comparison matrix;
+3. sends each idea pair to every configured judge stage;
+4. collects winners, confidence, reasoning, evidence references, and
+   per-dimension scores;
+5. aggregates results into BTL scores, Elo scores, dimension aggregates,
+   model-disagreement summaries, and Pareto categories;
+6. generates experiment-plan stubs;
+7. runs an evaluation meta-review.
+
+When a judge model call fails, IdeaLab records fallback judgments with lower
+confidence. The UI and raw evaluation files preserve the `judge_model` and
+fallback metadata so users can distinguish real model judgments from heuristic
+fallbacks.
 
 ## REST API
 
@@ -277,57 +243,63 @@ Main endpoints:
 
 - `GET /` - web app
 - `GET /api/health` - backend and API key status
-- `POST /api/runs` - create a new reasoning run
-- `GET /api/runs` - list historical runs
+- `POST /api/runs` - create a run
+- `GET /api/runs` - list runs
 - `GET /api/runs/{run_id}/graph` - load a reasoning graph
-- `POST /api/runs/{run_id}/human-input` - inject user input
+- `POST /api/runs/{run_id}/human-input` - add human input
 - `POST /api/runs/{run_id}/stop` - stop a run
-- `GET /api/runs/{run_id}/report` - load the final report
+- `POST /api/runs/{run_id}/resume` - breakpoint resume
+- `GET /api/runs/{run_id}/report` - load the Markdown report
+- `GET /api/runs/{run_id}/evaluation` - load evaluation output
+- `POST /api/runs/{run_id}/evaluation/recompute` - recompute evaluation
+- `POST /api/runs/{run_id}/evaluation/human-judgment` - append human judgment
 - `GET /api/config/models` / `PUT /api/config/models`
 - `GET /api/config/prompts` / `PUT /api/config/prompts`
+- `GET /api/config/evaluation` / `PUT /api/config/evaluation`
 - `GET /api/config/api-keys` / `PUT /api/config/api-keys`
 
 ## Safety and Privacy
 
+- IdeaLab is designed as a local single-user prototype.
+- Do not expose it to the public internet without authentication, authorization,
+  sandboxing, and resource controls.
 - API keys are stored locally in `idealab_config/.env`.
-- API keys are not stored in browser local storage.
-- Runtime workspaces are local under `idealab_workspaces/`.
-- This is a single-user local prototype; do not expose it directly to the
-  public internet without authentication, authorization, and sandboxing.
+- Runtime workspaces can contain private prompts, ideas, reports, and model
+  outputs. Review them before sharing.
+- The current experiment stage only plans validation work; it does not execute
+  code or run benchmarks.
 
 ## Current Limitations
 
-- No sandboxed code execution module yet.
-- No automatic benchmark runner yet.
-- No multi-user authentication.
-- Report quality still depends on model quality and prompt design.
-- Literature search is currently Semantic Scholar based and may miss relevant
-  non-indexed sources.
-- Evidence reliability scoring is still basic.
+- No sandboxed experiment execution yet.
+- No benchmark runner, baseline runner, or ablation runner yet.
+- Literature search depends on Semantic Scholar and local query quality.
+- PDF downloading and full-text parsing are not implemented.
+- No multi-user authentication or permission system.
+- Evaluation quality depends on configured judge models, prompt quality, and
+  whether calls fall back.
 
 ## Roadmap
 
-Near-term:
+Near term:
 
-- stronger input classification and clarification;
-- richer evidence schema and citation handling;
-- report references tied to evidence nodes;
-- quality scoring for ideas and reports;
-- better run comparison and review UI.
+- stronger literature query planning and citation handling;
+- richer evidence provenance and report citations;
+- clearer fallback detection and judge health display;
+- more granular human overrides for evaluation results.
 
-Mid-term:
+Mid term:
 
-- sandboxed code execution for minimal validation experiments;
-- baseline and ablation runners;
-- failure-case feedback into later reasoning loops;
-- multi-model cross-review;
-- export to paper, review memo, and presentation formats.
+- sandboxed minimal validation experiments;
+- benchmark, baseline, ablation, and multi-seed runners;
+- experiment results folded back into evaluation;
+- export to review memo, paper outline, and presentation formats.
 
-Long-term:
+Long term:
 
-- plugin-based tool layer;
 - project-level workspaces;
-- benchmark-based evaluation of idea quality;
+- plugin-based tool layer;
+- benchmark-based measurement of idea quality;
 - integration with automated experiment systems.
 
 ## License
